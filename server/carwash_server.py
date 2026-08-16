@@ -4,12 +4,6 @@
 Hooks POST raw payloads here; the browser reads a redacted SSE stream. Python
 3.9-compatible, stdlib only (/usr/bin/python3 on macOS is 3.9.6).
 
-This is a deliberate fork of agent-office's server. The transport, the
-redaction allowlist and the security posture are the proven ones and are kept
-line-for-line where possible; only identity changes (port, marker directory,
-URL prefix, injected global) so a car wash and an office can run at the same
-time without ever touching each other's markers.
-
 Three rules this file exists to enforce:
   1. Ingest never does socket I/O — a slow browser can never back-pressure a hook.
   2. Redaction happens BEFORE the ring buffer, so raw tool payloads can never be

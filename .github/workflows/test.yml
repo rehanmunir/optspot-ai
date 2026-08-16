@@ -1,0 +1,26 @@
+# The privacy claim in the README is a test, not a promise: every push boots
+# the real server, fires hostile payloads through the real ingest endpoint,
+# and fails if a single secret reaches anything the browser can read.
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: viewer parses
+        run: |
+          python3 - <<'PY'
+          import re
+          s = open('ui/index.html').read()
+          open('/tmp/viewer.js', 'w').write(
+              re.search(r'<script>\n(.*)\n</script>', s, re.S).group(1))
+          PY
+          node --check /tmp/viewer.js
+      - name: redaction holds
+        run: |
+          python3 server/carwash_server.py --no-browser &
+          for i in $(seq 1 20); do
+            [ -f ~/.claude/agent-carwash/carwash.json ] && break; sleep 0.5
+          done
+          python3 scripts/assert_redaction.py

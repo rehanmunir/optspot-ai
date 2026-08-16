@@ -22,10 +22,12 @@ can even run at once.
      and stop here.
    - Absent or the pid is dead → continue.
 
-2. **Start it**, in the background, never in the foreground:
+2. **Start it**, in the background, never in the foreground. The server ships
+   inside this plugin: from this SKILL.md, the plugin root is two directories
+   up, and the server is `<plugin-root>/server/carwash_server.py`:
 
    ```
-   "$CLAUDE_PROJECT_DIR/agent-carwash/server/carwash_server.py" --no-browser
+   python3 "<plugin-root>/server/carwash_server.py" --no-browser
    ```
 
    Use `run_in_background: true`. Poll for `~/.claude/agent-carwash/carwash.json`

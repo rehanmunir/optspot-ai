@@ -131,32 +131,23 @@ body{
 
 <script>
 "use strict";
-/* ══════════════════════════════════════════════════════════════════════════
-   OPTSPOT AI — Claude Code's own agents and tool calls, live, as a car wash.
+/* OPTSPOT AI — Claude Code's own agents and tool calls, live, as a car wash.
 
-   THE METAPHOR, and it is load-bearing rather than decorative:
-     a CAR       is one turn (your prompt in → Claude's turn ends)
-     a WASHER    is one agent (main Claude, plus every subagent)
-     a DETAIL BAY is one subagent working its own delegated task
-     JETS RUNNING is a real tool call in flight — this is the truth channel
+   A car is one turn. A washer is one agent. Jets run iff a real tool call is
+   in flight — that is the whole truth channel, and syncTruth() is its only
+   writer (liveN is a counter, never a boolean, so overlapping calls light a
+   lamp once and put it out once).
 
-   THE INVARIANT (inherited from agent-office, and the reason both exist):
-     A car with a live tool call is owned by real events. No ambient or
-     choreographic force may move it; only a real terminal event releases it.
-     `liveN` is a counter, never a boolean, so 50 overlapping calls start the
-     jets once and stop them once. syncTruth() is the jets' only writer.
+   House rules, all deliberate:
+   - the car advances only on evidence, never on time; only turn.ended (or a
+     terminal actor event) makes it clean
+   - no progress bar, no percentage: the stream cannot know how much of a
+     turn remains, so the page never claims to
+   - a quiet session is an empty forecourt, and that is honest
+   - state (feed drain, lamps, HUD) runs on its own timer; only motion runs
+     on requestAnimationFrame, which stops dead in hidden tabs */
 
-   Consequences, all deliberate:
-     - The car advances only on evidence. A station is entered because a tool
-       of that family really ran, never because time passed.
-     - There is no progress bar and no percentage, because the hook stream
-       cannot know how much of a turn remains. Grime thins as real work
-       completes but plateaus; only `turn.ended` makes a car clean.
-     - A quiet wash is an empty forecourt, and that is honest.
-     - The wash never invents activity and never invents a fault.
-   ══════════════════════════════════════════════════════════════════════════ */
-
-/* ─── M01 · CONFIG — every tunable, no magic literals below ─────────────── */
+/* ── CONFIG — every tunable, no magic literals below ─────────────── */
 const C = Object.freeze({
   DT_CLAMP: 0.1,
   // lane geometry (viewBox units)
@@ -190,7 +181,7 @@ const REDUCED = QS.get('reduced') === '1'
   ? { matches: true }
   : (window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false });
 
-/* ─── M02 · RNG — seeded so a replay is reproducible ────────────────────── */
+/* ── RNG — seeded so a replay is reproducible ────────────────────── */
 function mulberry32(a){
   return function(){
     a |= 0; a = (a + 0x6D2B79F5) | 0;
@@ -210,10 +201,10 @@ const pick     = arr => arr[Math.floor(rng() * arr.length) % arr.length];
 const hashStr  = s => { let h = 2166136261; for (let i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = Math.imul(h,16777619);} return h >>> 0; };
 const clamp    = (v,a,b) => v < a ? a : v > b ? b : v;
 
-/* ─── M03 · CLOCK ───────────────────────────────────────────────────────── */
+/* ── CLOCK ───────────────────────────────────────────────────────── */
 const CLOCK = { t:0, step(dt){ const d = Math.min(dt, C.DT_CLAMP); this.t += d; return d; }, now(){ return this.t; } };
 
-/* ─── M04 · WORLD — the wash itself ─────────────────────────────────────── */
+/* ── WORLD — the wash itself ─────────────────────────────────────── */
 /* Stations are ordered. A car's stage index RISES only on a real call of a
    later family; AIR DRY is entered by the exit ride after turn.ended, and by
    nothing else. */
@@ -307,7 +298,7 @@ for (let i = 0; i < C.BAYS; i++){
   BAYS.push({ i, x, w, cx: x + w/2, y: 528, h: 214, ground: 708, actorId: null, freeAt: 0 });
 }
 
-/* ─── M05 · CREW — who is holding the wand ──────────────────────────────── */
+/* ── CREW — who is holding the wand ──────────────────────────────── */
 const CREW = [
   { id:'ace',   name:'Ace',   role:'Lead',       suit:'#3fd8ff', cap:'#0f4d63' },
   { id:'scout', name:'Scout', role:'Walk-around',suit:'#3ee08c', cap:'#12472f' },
@@ -335,7 +326,7 @@ function crewFor(type, label){
 const KINDS = ['sedan','hatch','suv','van','coupe','wagon'];
 const PAINT = ['#d9534f','#4a90d9','#e8b93c','#5fbf7f','#c86fd0','#e0e6ef','#f08a3c','#6f7fd0'];
 
-/* ─── M06 · CARS ────────────────────────────────────────────────────────── */
+/* ── CARS ────────────────────────────────────────────────────────── */
 let carSeq = 0;
 function makeCarModel(opts){
   const seedN = hashStr('car' + (++carSeq) + SEED);
@@ -411,7 +402,7 @@ function outroTimers(car){
 }
 
 
-/* ─── M07 · SVG KIT ─────────────────────────────────────────────────────── */
+/* ── SVG KIT ─────────────────────────────────────────────────────── */
 const NS = 'http://www.w3.org/2000/svg';
 function el(tag, attrs, parent){
   const n = document.createElementNS(NS, tag);
@@ -425,7 +416,7 @@ function txt(parent, x, y, s, attrs){
 }
 const setA = (n, k, v) => { if (n.__c === undefined) n.__c = {}; if (n.__c[k] !== v){ n.__c[k] = v; n.setAttribute(k, v); } };
 
-/* ─── M08 · RIGS — a car, and a washer ──────────────────────────────────── */
+/* ── RIGS — a car, and a washer ──────────────────────────────────── */
 /* Local car space: 130 × 58, wheels on the ground line at y = 57. */
 const CABIN = {
   sedan:'M36,25 L49,10 L86,10 L98,25 Z',
@@ -534,7 +525,7 @@ function makeWasher(crew){
   return { g, body, arm, wand };
 }
 
-/* ─── M09 · PARTICLES — pooled; count is bounded regardless of load ─────── */
+/* ── PARTICLES — pooled; count is bounded regardless of load ─────── */
 const P = {
   layer:null, pool:[], head:0,
   init(layer){
@@ -572,7 +563,7 @@ const P = {
   }
 };
 
-/* ─── M10 · SCENE — drawn once, then only mutated ───────────────────────── */
+/* ── SCENE — drawn once, then only mutated ───────────────────────── */
 const SCENE = {
   svg:null, defs:null, layers:{}, stationRigs:[], zoneRigs:[], bayRigs:[], addonRigs:{},
   marquee:null,
@@ -944,7 +935,7 @@ const SCENE = {
   }
 };
 
-/* ─── M11 · FEED — real Claude Code activity drives the wash ────────────── */
+/* ── FEED — real Claude Code activity drives the wash ────────────── */
 /* This is the module the invariant lives in. Read the header comment before
    changing anything here. */
 const FEED = {
@@ -1176,7 +1167,7 @@ function ADDONS_hit(id){
   r.n++; r.lastAt = CLOCK.now(); HUD.dirty = true;
 }
 
-/* ─── M12 · ACTIVITY LOG — rows are 1:1 with received events ────────────── */
+/* ── ACTIVITY LOG — rows are 1:1 with received events ────────────── */
 const ACT = {
   rows:[], byTool:{},
   open(actorId, toolUseId, tool, target, spawns){
@@ -1202,7 +1193,7 @@ const ACT = {
   }
 };
 
-/* ─── M13 · THE TRUTH CHANNEL ───────────────────────────────────────────── */
+/* ── THE TRUTH CHANNEL ───────────────────────────────────────────── */
 /* INVARIANT: a station's jets run iff an unmatched tool.started exists for the
    actor that owns it. This is the ONLY writer of jet/lamp state.
 
@@ -1288,7 +1279,7 @@ function syncTruth(){
   }
 }
 
-/* ─── M14 · ENGINE ──────────────────────────────────────────────────────── */
+/* ── ENGINE ──────────────────────────────────────────────────────── */
 const ENGINE = {
   last:0, ready:false, frames:0, fps:0, fpsAt:0,
   init(){
@@ -1561,7 +1552,7 @@ const ENGINE = {
   }
 };
 
-/* ─── M15 · HUD — vanilla DOM, no framework, no network ─────────────────── */
+/* ── HUD — vanilla DOM, no framework, no network ─────────────────── */
 const HUD = {
   dirty:true, lastRender:0,
   els:{},
@@ -1688,7 +1679,7 @@ const HUD = {
 };
 function setCls(n, c){ if (n.className !== c) n.className = c; }
 
-/* ─── DEMO — canned traffic when the page is opened directly ────────────── */
+/* ── DEMO — canned traffic when the page is opened directly ────────────── */
 /* Never runs while connected. It exists so the scene can be designed without
    a live Claude, and it says so in the HUD so it can't be mistaken for real. */
 const DEMO = {
@@ -1752,7 +1743,7 @@ const DEMO = {
   }
 };
 
-/* ─── test hooks — deterministic stepping, same contract as agent-office ── */
+/* ── test hooks — deterministic stepping, same contract as agent-office ── */
 window.__CW = {
   step(n, ms){ for (let i = 0; i < n; i++) ENGINE.frame(ENGINE.last + (ms || 16.6667)); },
   info(){ return { fps: ENGINE.fps, nodes: document.getElementsByTagName('*').length,
@@ -1768,7 +1759,7 @@ window.__CW = {
   FEED, LANE, SCENE, STATIONS, BAYS, C, ACT
 };
 
-/* ─── boot ──────────────────────────────────────────────────────────────── */
+/* ── boot ──────────────────────────────────────────────────────────────── */
 /* Deferred deliberately: the server injects __CW_LIVE at the very end of the
    document, i.e. AFTER this script tag. Booting synchronously here would
    always miss it and silently fall into demo mode.
