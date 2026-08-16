@@ -256,9 +256,7 @@ const SEED = (function(){
 })();
 const rng      = mulberry32(SEED);
 const rnd      = (a,b) => a + (b - a) * rng();
-const pick     = arr => arr[Math.floor(rng() * arr.length) % arr.length];
 const hashStr  = s => { let h = 2166136261; for (let i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = Math.imul(h,16777619);} return h >>> 0; };
-const clamp    = (v,a,b) => v < a ? a : v > b ? b : v;
 
 /* ── CLOCK ───────────────────────────────────────────────────────── */
 const CLOCK = { t:0, step(dt){ const d = Math.min(dt, C.DT_CLAMP); this.t += d; return d; }, now(){ return this.t; } };
@@ -268,18 +266,13 @@ const CLOCK = { t:0, step(dt){ const d = Math.min(dt, C.DT_CLAMP); this.t += d; 
    later family; AIR DRY is entered by the exit ride after turn.ended, and by
    nothing else. */
 /* FOUR stages — the ones a real tunnel has: water, soap, rollers, air.
-   Each is entered on evidence, never on a timer. The stream's tool families
-   group naturally onto the four:
-     WATER POUR   reading & searching — soaking the task before touching it
+   The stream's tool families group naturally onto the first three:
+     WATER POUR   reading & searching — soaking the task
      SOAP & FOAM  writing & editing — laying the new material on
      ROLLERS      commands & partner services — scrubbing it all over
-     AIR DRY      the exit ride — fires only after the turn really ends
-   A real tunnel is a CONVEYOR: the chain runs one way and the car never rolls
-   backwards. So the car's position is the furthest stage evidenced this turn
-   (a high-water mark, still advanced only by real calls). When an
-   earlier-family call runs afterwards, that stage's lamp lights and its
-   washer takes the work TO the car — a touch-up crew, like the hand-prep
-   attendants in a real wash — counted on the ticket as touch-ups. */
+     AIR DRY      the ride out — reachable only by a call really completing
+   Every live car rides the chain through all of them, position showing how
+   long its call has run; the arch above it fires while it is underneath. */
 const STATIONS = [
   { id:'water', n:'WATER POUR',  sub:'soaking — reading & searching',  jet:'pour',  gear:'pipes'   },
   { id:'soap',  n:'SOAP & FOAM', sub:'lathering — writing & editing',  jet:'foam',  gear:'cannon'  },
@@ -337,6 +330,7 @@ const TOOL_STATION = [
   // else. Plan/wrap-up tools are checklist work — an add-on, not a wash stage.
 ];
 const stationFor = t => { for (const r of TOOL_STATION) if (r[0].test(t)) return r[1]; return -1; };
+const underArch  = (c, i) => c.x >= STATIONS[i].x0 - 18 && c.x <= STATIONS[i].x1 + 18;
 
 /* Add-on services: real tools that are not a wash stage. Calling in extra
    crew, keeping the checklist, and asking the customer all happen *beside*
@@ -1465,9 +1459,8 @@ function syncTruth(){
 
   // an arch is live iff a live car is physically under it — the car exists
   // iff its call is in flight, so this is still pure evidence
-  const under = (c, i) => c.x >= STATIONS[i].x0 - 18 && c.x <= STATIONS[i].x1 + 18;
   const busyAt = new Array(STATIONS.length).fill(0);
-  for (const c of live) for (let i = 0; i < 3; i++) if (under(c, i)) busyAt[i]++;
+  for (const c of live) for (let i = 0; i < 3; i++) if (underArch(c, i)) busyAt[i]++;
 
   for (const r of SCENE.stationRigs){
     const i3 = r.st.i === 3;
@@ -1607,8 +1600,7 @@ const ENGINE = {
                             bobY -= Math.sin(Math.PI * (1 - c.hop)) * 5; }
 
           if (c.state === 'WASH'){
-            const underRoll = c.x >= STATIONS[2].x0 - 18 && c.x <= STATIONS[2].x1 + 18;
-            if (underRoll){
+            if (underArch(c, 2)){
               // squash: the brushes genuinely press on this roof
               bobY += Math.sin(tN * 34 + c.wobble) * 1.8;
               sy = 1 - .026 - .02 * (.5 + .5 * Math.sin(tN * 34 + c.wobble));
@@ -1712,12 +1704,11 @@ const ENGINE = {
     for (const c of WORLD.cars){
       if (c.bay) continue;
       if (c.state === 'WASH'){
-        const under = i => c.x >= STATIONS[i].x0 - 18 && c.x <= STATIONS[i].x1 + 18;
-        if (under(0)){ c.wet   = Math.min(1, (c.wet   || 0) + dt * 1.4); }
-        if (under(1)){ c.foamL = Math.min(1, (c.foamL || 0) + dt * 1.1);
-                       c.wet   = Math.min(1, (c.wet   || 0) + dt * .3); }
-        if (under(2)){ c.foamL = Math.max(0, (c.foamL || 0) - dt * 1.5);
-                       c.wet   = Math.min(1, (c.wet   || 0) + dt * .5); }
+        if (underArch(c, 0)){ c.wet   = Math.min(1, (c.wet   || 0) + dt * 1.4); }
+        if (underArch(c, 1)){ c.foamL = Math.min(1, (c.foamL || 0) + dt * 1.1);
+                              c.wet   = Math.min(1, (c.wet   || 0) + dt * .3); }
+        if (underArch(c, 2)){ c.foamL = Math.max(0, (c.foamL || 0) - dt * 1.5);
+                              c.wet   = Math.min(1, (c.wet   || 0) + dt * .5); }
       }
       if (c.state === 'RINSE'){
         c.wet   = Math.max(0, (c.wet   || 0) - dt * 1.6);
@@ -2045,7 +2036,7 @@ const DEMO = {
     tool('main','Bash','npm run',900); tool('d2','Grep','pattern (12 chars)',220);
     S.push({ stop:'d2' });
     tool('main','TodoWrite','',90);
-    tool('main','Read','index.html',260);            // late read = a touch-up at the car
+    tool('main','Read','index.html',260);
     tool('main','Edit','index.html',410);
     S.push({ turn:true });
     this.script = S; this.i = 0; this.next = 1.0;

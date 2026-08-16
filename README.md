@@ -18,23 +18,46 @@ Claude Code ──hooks (async, never blocking)──► carwash-emit.sh ──�
 
 ## Install
 
-The repo is its own plugin marketplace:
+You need Claude Code running locally (macOS, Linux, or Windows via WSL) and
+`python3` — on those systems, both are usually already there. Then:
 
 ```bash
 claude plugin marketplace add rehanmunir/optspot-ai
+```
+
+```bash
 claude plugin install agent-carwash@optspot
 ```
 
-That wires all eight hooks (plugin-managed — no `settings.json` surgery) and
-ships the skill, so you can just tell Claude *"open the car wash"* or *"open
-optspot"* in any session. Hooks cost ~1 ms each while the wash is closed and
-do nothing.
+That is the whole install. The plugin carries its own hooks — no
+`settings.json` surgery — and they only fire in sessions started *after* the
+install, so open a fresh session once you're done. While the wash is closed
+the hooks cost about a millisecond each and do nothing at all.
 
-Runs anywhere Claude Code runs locally with a POSIX shell: macOS, Linux, and
-Windows via WSL. Cloud sessions can't feed it — their hooks fire on the cloud
-machine, and honestly reporting nothing is the whole point.
+Cloud sessions can't feed it: their hooks fire on the cloud machine, and
+honestly showing nothing is the whole point.
 
-Uninstall: `claude plugin disable agent-carwash`, or remove the marketplace.
+Uninstall any time with `claude plugin disable agent-carwash`, or remove the
+marketplace.
+
+## Use it
+
+1. In any Claude Code session, say **"open the car wash"** (or *"open
+   optspot"*). Claude starts the loopback server and opens the page.
+2. Give Claude work — in that session or any other on the machine. Every
+   tool call pulls in as its own car: reads get soaked, edits get foamed,
+   commands get the rollers, and a car leaves clean only when its call
+   really completes. Failed calls leave dirty. Subagents wash their own
+   delegated tasks in the detail bays, and your turn is the ticket Josh
+   opens and Levi closes.
+3. Or order at **The Counter** on the page itself: type a job in the box and
+   Claude runs it as a real local headless session — the cars you watch are
+   that job being done, and the reply lands in the panel below. (The counter
+   uses the standalone `claude` CLI, whose login is separate from the
+   desktop app's — if it answers "not logged in", run `claude` in a terminal
+   and complete `/login` once.)
+4. Say **"close the car wash"** when you're done. The server removes its
+   marker and the hooks go back to costing nothing.
 
 ## Run it by hand
 

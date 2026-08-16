@@ -23,7 +23,7 @@ dumb redacting pipe with one responsibility.
 from __future__ import annotations
 
 import argparse, collections, hmac, itertools, json, os, queue, re, secrets
-import shutil, signal, subprocess, sys, threading, time, webbrowser
+import shutil, signal, subprocess, threading, time, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
