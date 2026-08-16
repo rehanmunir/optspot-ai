@@ -1,0 +1,11 @@
+{
+  "name": "optspot",
+  "owner": { "name": "Rehan Munir" },
+  "plugins": [
+    {
+      "name": "agent-carwash",
+      "source": "./",
+      "description": "OPTSPOT AI — watch Claude's own agents and tool calls live as a car wash. A task is a car, agents are the washers, jets run only while a real tool call is in flight. Loopback-only, redacted at ingest."
+    }
+  ]
+}

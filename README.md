@@ -34,6 +34,26 @@ Close it by POSTing to `<url>close`, or `kill` the pid in
 `~/.claude/agent-carwash/carwash.json`. The server removes its marker on exit,
 which returns the hooks to the fast path.
 
+## Install as a Claude Code plugin
+
+The repo is its own plugin marketplace, and the plugin carries the hooks —
+no manual `settings.json` surgery, and it covers **every** project:
+
+```bash
+claude plugin marketplace add "/path/to/agent-carwash"   # or the GitHub repo, once pushed
+claude plugin install agent-carwash@optspot
+```
+
+That registers all eight hooks via `hooks/hooks.json`
+(`${CLAUDE_PLUGIN_ROOT}/scripts/carwash-emit.sh`) and ships the skill, so
+*"open the car wash"* / *"open optspot"* works in any session. Uninstall with
+`claude plugin disable agent-carwash` or remove the marketplace. If you had
+the hooks registered project-scoped or via `install-global-hooks.sh`, remove
+those after installing the plugin — two registrations mean duplicate
+`PostToolUse` events, which double-count the stage timers. (Windows: plugin
+hooks run the sh emitter; on native-Windows Claude Code use
+`scripts\install-global-hooks.ps1` instead of the plugin's hooks.)
+
 ## The desktop app (macOS + Windows)
 
 `desktop/` is a Tauri 2 shell around the same loopback page — no second

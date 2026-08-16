@@ -1,6 +1,6 @@
 {
   "name": "agent-carwash",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "OPTSPOT AI — watch Claude's own agents and tool calls live as a car wash: a task is a car, agents are the washers, jets run only while a real tool call is in flight. Streams hook events to a local, loopback-only viewer.",
   "author": { "name": "Rehan Munir" }
 }
