@@ -69,14 +69,13 @@ its marker on exit, which returns the hooks to the fast path.
   moving the car, because they are real work that says nothing about which
   stage the turn is in.
 - There is **no percentage and no progress bar**: the hook stream cannot know
-  how much of a turn remains. Grime thins as real calls complete but plateaus;
-  only the turn ending makes a car clean.
+  how much of a turn remains. A car comes clean only when its own call really
+  completes, and a ticket only closes when the turn really ends.
 
 ## If nothing moves
 
-Hooks are registered in `.claude/settings.json` in the project (and optionally
-globally via `scripts/install-global-hooks.sh`). They only fire in sessions
-started after that file existed. If the wash is connected (the header says
+Hooks are plugin-managed (`hooks/hooks.json`) and fire in sessions started
+after the plugin was installed. If the wash is connected (the header says
 `● live`) but stays empty, the hooks are not firing — check with
 `claude --debug`, or set `AGENT_CARWASH_DEBUG=1` and read
 `~/.claude/agent-carwash/emit.err`.
