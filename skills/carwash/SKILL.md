@@ -52,8 +52,9 @@ its marker on exit, which returns the hooks to the fast path.
 
 ## How to read it
 
-- A **car** is one tool call: it enters when the call starts, washes at its
-  family's stage while the call runs, and leaves clean only when it completes.
+- A **car** is one tool call: it enters when the call starts, rides the
+  conveyor through the arches while the call runs (easing to a stop at the
+  hold line before the dryers), and leaves clean only when it completes.
   A failed call skips the towel and leaves dirty. Parallel calls are several
   cars in the tunnel at once.
 - The **ticket** is the turn: Josh opens it at your prompt, Levi closes it at

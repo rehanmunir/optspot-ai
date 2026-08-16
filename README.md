@@ -62,8 +62,9 @@ never be mistaken for a real session.
 
 Parallel calls are several cars in the tunnel at once, because that is what
 they really are. A failed call skips the towel and leaves as dirty as it
-came. Two calls of the same family queue at the same arch. The car IS the
-in-flight call, so cars, lamps and machinery can never disagree.
+came. Cars queue on the belt in arrival order, like a real backed-up tunnel.
+The car IS the in-flight call, so cars, lamps and machinery can never
+disagree.
 
 ### Four phases, four staff
 
@@ -94,12 +95,19 @@ washed, failed, elapsed — the viewer never receives Claude's reply.
 | 3 | ROLLERS | striped side brushes + top roller | `Bash` `mcp__*` — scrubbing it all over |
 | 4 | AIR DRY | blower bank | the exit ride — fires only for a car whose call really completed |
 
-Each car drives to its family's arch and washes there for exactly as long as
-its call really runs — wet sheen under the water, clinging foam under the
-cannons, foam scrubbed off by the rollers. On completion it rides out through
-the blowers, gets Jeremy's towel, and Levi waves it off gleaming. On failure
-it skips the towel and leaves dirty, plate stamped ✗. AIR DRY fires only for
-completed cars riding out — there is no way to reach it by waiting.
+The chain never stops: a live car creeps forward through every arch — wet
+sheen under the water, clinging foam under the cannons, foam scrubbed off by
+the rollers — easing to a stop at the **hold line** before the dryers. Its
+position shows how long its call has been running, never how close it is to
+done; only the real completion event carries a car across the line. Each arch
+fires exactly while a live car is under it — a car straddling two arches
+lights both, the way a real tunnel's tail is still in the water curtain as
+the nose meets the foam.
+
+On completion the car rides out through the blowers, gets Jeremy's towel, and
+Levi waves it off gleaming. On failure it skips the towel and leaves dirty,
+plate stamped ✗. AIR DRY fires only for completed cars riding out — there is
+no way to reach it by waiting.
 
 Each stage shows `passes × total-ms` from the harness's own `duration_ms` —
 the only numbers on the tunnel, every one measured, reset per ticket.

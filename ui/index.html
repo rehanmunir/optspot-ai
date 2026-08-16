@@ -161,6 +161,10 @@ const C = Object.freeze({
   CAR_SCALE: 1.1, BAY_CAR_SCALE: 1.0,
   // motion
   ROLL_SPEED: 300,                   // px/s the car eases at
+  // The conveyor: a live car's position is 1-exp(-age/CREEP_TAU) of the way
+  // to the hold line. It shows how long the call has RUN — never how close it
+  // is to done — and only the real completion event crosses the line.
+  CREEP_TAU: 5.5,
   ARRIVE_EPS: 1.2, WHEEL_R: 11,
   BAY_LINGER: 2.2,
   // Per-car outro dwells (towel, goodbye). The ONLY timers on the page, and
@@ -1233,15 +1237,16 @@ function syncTruth(){
   }
   setA(SCENE.tunnelBanner, 'opacity', phase === 'TUNNEL' ? '1' : '.45');
 
+  // an arch is live iff a live car is physically under it — the car exists
+  // iff its call is in flight, so this is still pure evidence
+  const under = (c, i) => c.x >= STATIONS[i].x0 - 18 && c.x <= STATIONS[i].x1 + 18;
   const busyAt = new Array(STATIONS.length).fill(0);
-  for (const c of live) if (c.station >= 0) busyAt[c.station]++;
+  for (const c of live) for (let i = 0; i < 3; i++) if (under(c, i)) busyAt[i]++;
 
   for (const r of SCENE.stationRigs){
     const i3 = r.st.i === 3;
     const on = i3 ? !!rinsing : busyAt[r.st.i] > 0;
     r.live = on;
-    // the car under the arch IS the in-flight call, so machinery and lamp
-    // agree by construction
     r.fxOn = on;
     setA(r.lamp, 'fill', on ? '#ffc23a' : '#241e19');
     setA(r.halo, 'opacity', on ? '.30' : '0');
@@ -1312,9 +1317,16 @@ const ENGINE = {
     if (c.state === 'DRYING')
       return ZONES.DRY.cx + off(carSlot(c, o => o.state === 'DRYING'));
     if (c.state === 'RINSE') return STATIONS[3].cx;
-    if (c.state === 'WASH' && c.station >= 0)
-      return STATIONS[c.station].cx
-           + off(carSlot(c, o => o.state === 'WASH' && o.station === c.station));
+    if (c.state === 'WASH'){
+      // the chain pulls continuously: in past the gate, through every arch,
+      // easing to a stop at the hold line before the dryers. Cars queue on
+      // the belt in arrival order, like a real backed-up tunnel.
+      const age   = Math.max(0, (Date.now() - c.startedAt) / 1000);
+      const inX   = C.TUNNEL_X0 - 26;
+      const holdX = STATIONS[2].x1 - 24 - carSlot(c, o => o.state === 'WASH') * 84;
+      const span  = Math.max(60, holdX - inX);
+      return inX + span * (1 - Math.exp(-age / C.CREEP_TAU));
+    }
     return ZONES.CHECKIN.cx;
   },
   // per-car outro: the dwell starts only after THIS car's real completion
@@ -1410,11 +1422,12 @@ const ENGINE = {
     for (const c of WORLD.cars){
       if (c.bay) continue;
       if (c.state === 'WASH'){
-        if (c.station === 0){ c.wet   = Math.min(1, (c.wet   || 0) + dt * 1.4); }
-        if (c.station === 1){ c.foamL = Math.min(1, (c.foamL || 0) + dt * 1.1);
-                              c.wet   = Math.min(1, (c.wet   || 0) + dt * .3); }
-        if (c.station === 2){ c.foamL = Math.max(0, (c.foamL || 0) - dt * 1.5);
-                              c.wet   = Math.min(1, (c.wet   || 0) + dt * .5); }
+        const under = i => c.x >= STATIONS[i].x0 - 18 && c.x <= STATIONS[i].x1 + 18;
+        if (under(0)){ c.wet   = Math.min(1, (c.wet   || 0) + dt * 1.4); }
+        if (under(1)){ c.foamL = Math.min(1, (c.foamL || 0) + dt * 1.1);
+                       c.wet   = Math.min(1, (c.wet   || 0) + dt * .3); }
+        if (under(2)){ c.foamL = Math.max(0, (c.foamL || 0) - dt * 1.5);
+                       c.wet   = Math.min(1, (c.wet   || 0) + dt * .5); }
       }
       if (c.state === 'RINSE'){
         c.wet   = Math.max(0, (c.wet   || 0) - dt * 1.6);
@@ -1490,11 +1503,6 @@ const ENGINE = {
           if (st.jet === 'foam')  P.spawn(cx + rnd(-72,72), C.LANE_Y - rnd(50,108), 'foam');
           if (st.jet === 'scrub'){ P.spawn(cx + rnd(-84,84), C.LANE_Y - rnd(28,96), 'fleck');
                                    P.spawn(cx + rnd(-60,60), C.LANE_Y - rnd(38,84), 'foam'); }
-          // queued cars behind the arch get the hand-spray treatment
-          for (const c of WORLD.cars)
-            if (c.state === 'WASH' && c.station === st.i && Math.abs(c.x - cx) > 60)
-              P.spawn(c.x + rnd(-40,40), C.LANE_Y - rnd(26,72),
-                      st.jet === 'foam' ? 'foam' : st.jet === 'scrub' ? 'fleck' : 'mist');
         }
         for (const rig of SCENE.bayRigs){
           if (!rig.live) continue;
@@ -1594,7 +1602,8 @@ const HUD = {
       if (TURN.open){
         const secs = Math.floor((Date.now() - TURN.startedAt) / 1000);
         const occ = STATIONS.slice(0, 3)
-          .map(st => { const n = liveCars.filter(c => c.station === st.i).length;
+          .map(st => { const n = liveCars.filter(c =>
+                         c.x >= st.x0 - 18 && c.x <= st.x1 + 18).length;
                        return n ? st.n.toLowerCase() + ' ' + n : null; })
           .filter(Boolean).join(' · ');
         T.l1.textContent = liveCars.length
