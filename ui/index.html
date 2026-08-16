@@ -381,9 +381,17 @@ function crewFor(type, label){
   return pool[hashStr(t + '|' + (label || '')) % pool.length];
 }
 
-/* Vehicle shapes — variety only, never meaning. */
-const KINDS = ['sedan','hatch','suv','van','coupe','wagon'];
-const PAINT = ['#d9534f','#4a90d9','#e8b93c','#5fbf7f','#c86fd0','#e0e6ef','#f08a3c','#6f7fd0'];
+/* Vehicle shapes — variety only, never meaning. An exotic rolling in says
+   nothing about the call it carries; it is just a nicer day at the wash. */
+const KINDS   = ['sedan','hatch','suv','van','coupe','wagon'];
+const EXOTICS = ['super','gt'];
+const PAINT   = ['#d9534f','#4a90d9','#e8b93c','#5fbf7f','#c86fd0','#e0e6ef','#f08a3c','#6f7fd0',
+                 '#d4af6a','#1e5c45','#3b2a6d','#4a4f58','#c1121f'];
+/* low-slung bodies override the standard slab */
+const BODY = {
+  super:'M4,40 L12,30 L40,26 L70,25 L100,27 L122,31 L126,39 L126,44 L4,44 Z',
+  gt:   'M4,39 Q8,28 24,27 L114,27 Q126,30 126,40 L126,44 L4,44 Z'
+};
 
 /* ── CARS ────────────────────────────────────────────────────────── */
 let carSeq = 0;
@@ -391,7 +399,9 @@ function makeCarModel(opts){
   const seedN = hashStr('car' + (++carSeq) + SEED);
   return {
     id: 'car' + carSeq,
-    kind:  opts.kind  || KINDS[seedN % KINDS.length],
+    kind:  opts.kind  || ((seedN >>> 5) % 100 < 28
+             ? EXOTICS[seedN % EXOTICS.length]
+             : KINDS[seedN % KINDS.length]),
     paint: opts.paint || PAINT[(seedN >>> 3) % PAINT.length],
     label: opts.label || '',
     station: opts.station != null ? opts.station : -1,
@@ -549,7 +559,9 @@ const CABIN = {
   suv:  'M31,25 L40,7  L93,7  L103,25 Z',
   van:  'M27,25 L29,5  L101,5 L105,25 Z',
   coupe:'M40,25 L54,12 L80,12 L94,25 Z',
-  wagon:'M33,25 L44,9  L95,9  L100,25 Z'
+  wagon:'M33,25 L44,9  L95,9  L100,25 Z',
+  super:'M46,27 L58,17 L86,17 L98,27 Z',
+  gt:   'M42,27 L54,15 L76,15 Q92,19 102,27 Z'
 };
 const GLASS = {
   sedan:'M44,24 L54,14 L65,14 L65,24 Z M70,14 L82,14 L90,24 L70,24 Z',
@@ -557,17 +569,28 @@ const GLASS = {
   suv:  'M39,24 L46,11 L62,11 L62,24 Z M67,11 L88,11 L95,24 L67,24 Z',
   van:  'M35,24 L36,10 L62,10 L62,24 Z M67,10 L96,10 L98,24 L67,24 Z',
   coupe:'M47,24 L57,16 L68,16 L68,24 Z M73,16 L82,16 L88,24 L73,24 Z',
-  wagon:'M40,24 L49,13 L64,13 L64,24 Z M69,13 L90,13 L94,24 L69,24 Z'
+  wagon:'M40,24 L49,13 L64,13 L64,24 Z M69,13 L90,13 L94,24 L69,24 Z',
+  super:'M50,26 L60,18 L70,18 L70,26 Z M74,18 L84,18 L94,26 L74,26 Z',
+  gt:   'M46,26 L56,17 L68,17 L68,26 Z M72,17 L82,17 L96,26 L72,26 Z'
 };
 function makeCar(model){
   const g = el('g', { class:'car' });
   el('ellipse', { cx:65, cy:57, rx:56, ry:5, fill:'#000', opacity:'.34' }, g);
+  // glossy floor: the paintwork spills a soft colour onto the polished ground
+  el('rect', { x:16, y:58, width:98, height:9, rx:4, fill:model.paint, opacity:'.10',
+               filter:'url(#fSoft)' }, g);
 
   const paint = el('g', {}, g);
-  el('rect', { x:4, y:24, width:122, height:23, rx:8, fill:model.paint }, paint);
+  if (BODY[model.kind]) el('path', { d: BODY[model.kind], fill:model.paint }, paint);
+  else el('rect', { x:4, y:24, width:122, height:23, rx:8, fill:model.paint }, paint);
   el('path', { d: CABIN[model.kind] || CABIN.sedan, fill:model.paint }, paint);
   if (model.kind === 'van' || model.kind === 'wagon')
     el('rect', { x:24, y:22, width:82, height:5, fill:model.paint }, paint);
+  if (model.kind === 'super'){                     // the wing earns its keep
+    el('rect', { x:4, y:19, width:18, height:2.6, rx:1.3, fill:model.paint }, paint);
+    el('rect', { x:7, y:21, width:2.4, height:6, fill:model.paint }, paint);
+    el('rect', { x:16, y:21, width:2.4, height:6, fill:model.paint }, paint);
+  }
   el('rect', { x:4, y:38, width:122, height:9, rx:4, fill:'#000', opacity:'.20' }, paint);
 
   el('path', { d: GLASS[model.kind] || GLASS.sedan, fill:'#142b3f', opacity:'.92' }, paint);
@@ -595,7 +618,8 @@ function makeCar(model){
   /* grime and shine are two overlays over the same silhouette */
   const sil = 'M4,32 Q4,24 12,24 L126,24 Q126,24 126,32 L126,44 L4,44 Z';
   const grime = el('g', { opacity: model.grime }, g);
-  el('rect', { x:4, y:24, width:122, height:23, rx:8, fill:'url(#pGrime)' }, grime);
+  if (BODY[model.kind]) el('path', { d: BODY[model.kind], fill:'url(#pGrime)' }, grime);
+  else el('rect', { x:4, y:24, width:122, height:23, rx:8, fill:'url(#pGrime)' }, grime);
   el('path', { d: CABIN[model.kind] || CABIN.sedan, fill:'url(#pGrime)' }, grime);
   el('rect', { x:4, y:41, width:122, height:6, rx:3, fill:'#3a2f1c', opacity:'.95' }, grime);
   for (const wx of [30, 100])                       // wheel-arch splatter
@@ -609,7 +633,8 @@ function makeCar(model){
   /* wash layers — decoration whose opacity moves ONLY while a matching stage
      is genuinely live (or in the post-turn outro), never on idle time */
   const wet = el('g', { opacity:0, 'pointer-events':'none' }, g);
-  el('rect', { x:4, y:24, width:122, height:23, rx:8, fill:'#bfe6ff', opacity:'.20' }, wet);
+  if (BODY[model.kind]) el('path', { d: BODY[model.kind], fill:'#bfe6ff', opacity:'.20' }, wet);
+  else el('rect', { x:4, y:24, width:122, height:23, rx:8, fill:'#bfe6ff', opacity:'.20' }, wet);
   el('path', { d: CABIN[model.kind] || CABIN.sedan, fill:'#bfe6ff', opacity:'.14' }, wet);
   for (const dx of [18, 52, 88, 112])
     el('rect', { x:dx, y:40, width:1.6, height:8, rx:.8, fill:'#bfe6ff', opacity:'.55' }, wet);
@@ -826,6 +851,10 @@ const SCENE = {
     el('stop', { offset:'0%',   'stop-color':'#3fd8ff', 'stop-opacity':'.55' }, glow);
     el('stop', { offset:'100%', 'stop-color':'#3fd8ff', 'stop-opacity':'0' }, glow);
 
+    const warm = el('radialGradient', { id:'gWarm' }, this.defs);
+    el('stop', { offset:'0%',   'stop-color':'#ffd98a', 'stop-opacity':'.15' }, warm);
+    el('stop', { offset:'100%', 'stop-color':'#ffd98a', 'stop-opacity':'0' }, warm);
+
     const neon = el('filter', { id:'fNeon', x:'-40%', y:'-80%', width:'180%', height:'320%' }, this.defs);
     el('feGaussianBlur', { stdDeviation:5, result:'b' }, neon);
     const mg = el('feMerge', {}, neon);
@@ -845,9 +874,10 @@ const SCENE = {
 
     /* one clip PER BODY KIND, in local car space — the gleam sweep must hug
        this car's silhouette, not the tallest cabin in the fleet */
-    for (const kind of KINDS){
+    for (const kind of KINDS.concat(EXOTICS)){
       const ccb = el('clipPath', { id:'clipCarBody-' + kind }, this.defs);
-      el('rect', { x:4, y:24, width:122, height:23, rx:8 }, ccb);
+      if (BODY[kind]) el('path', { d: BODY[kind] }, ccb);
+      else el('rect', { x:4, y:24, width:122, height:23, rx:8 }, ccb);
       el('path', { d: CABIN[kind] }, ccb);
     }
     /* and one hard clip of the whole stage, so departing cars never render
@@ -873,6 +903,8 @@ const SCENE = {
     const g = el('g', {}, this.layers.bg);
     el('rect', { x:632, y:14, width:496, height:62, rx:12, fill:'#0a1120',
                  stroke:'#1e2c48', 'stroke-width':1.5 }, g);
+    el('rect', { x:637, y:19, width:486, height:52, rx:9, fill:'none',
+                 stroke:'#d9b36a', 'stroke-width':1, opacity:.45 }, g);
     // the real OptSpot wordmark, inlined — the page still makes zero
     // external requests
     el('image', { href: OPTSPOT_LOGO, x:742, y:24, width:130, height:38,
@@ -965,6 +997,7 @@ const SCENE = {
                                  fill:'url(#gGlow)', opacity:0 }, zg);
     el('rect', { x:z.x0, y:H0, width:z.x1 - z.x0, height:H1 - H0, rx:8,
                  fill:'#0b1220', opacity:.5, stroke:'#16213a' }, zg);
+    el('ellipse', { cx:z.cx, cy:230, rx:96, ry:130, fill:'url(#gWarm)' }, zg);
     const lamp = el('rect', { x:z.cx - 40, y:126, width:80, height:7, rx:3.5, fill:'#241e19' }, zg);
     const halo = el('ellipse', { cx:z.cx, cy:133, rx:58, ry:13, fill:'#ffc23a',
                                  opacity:0, filter:'url(#fSoft)' }, zg);
@@ -974,6 +1007,10 @@ const SCENE = {
       el('rect', { x:z.cx - 98, y:250, width:36, height:56, rx:4, fill:'#33465f' }, zg);
       el('rect', { x:z.cx - 93, y:258, width:26, height:16, rx:2, fill:'#0d1626' }, zg);
       el('rect', { x:z.cx - 93, y:282, width:26, height:4, rx:2, fill:'#4a5b78' }, zg);
+      // the VIP approach: a carpet from the podium to the tunnel mouth
+      el('rect', { x:z.cx - 70, y:C.LANE_Y + 8, width:262, height:12, rx:2, fill:'#7a1f2b' }, zg);
+      el('rect', { x:z.cx - 70, y:C.LANE_Y + 7,  width:262, height:1.6, fill:'#d9b36a' }, zg);
+      el('rect', { x:z.cx - 70, y:C.LANE_Y + 18.5, width:262, height:1.6, fill:'#d9b36a' }, zg);
       const cin = makeCustomers();
       cin.setAttribute('transform', 'translate(' + (z.cx + 44) + ',' + C.LANE_Y + ')');
       this.layers.crew.appendChild(cin);
@@ -1043,6 +1080,10 @@ const SCENE = {
                  rx:6, fill:'#152036', stroke:'#22314e' }, g);
     el('rect', { x:C.TUNNEL_X0 - 14, y:116, width:(C.TUNNEL_X1 - C.TUNNEL_X0) + 28, height:3,
                  fill:'#3fd8ff', opacity:.30 }, g);
+    // the string lights of a place that charges for the towel
+    this.bulbs = [];
+    for (let bx = C.TUNNEL_X0 + 12; bx < C.TUNNEL_X1; bx += 34)
+      this.bulbs.push(el('circle', { cx:bx, cy:101, r:2.2, fill:'#ffd98a', opacity:.7 }, g));
     this.tunnelBanner = txt(g, (C.TUNNEL_X0 + C.TUNNEL_X1) / 2, 111,
           'THE TUNNEL — Nick', { fill:'#3fd8ff', 'font-size':10, 'letter-spacing':2.4,
           'text-anchor':'middle', opacity:.55, 'font-weight':700 });
@@ -1086,6 +1127,8 @@ const SCENE = {
       /* label plate */
       el('rect', { x:st.x0 + 4, y:C.LANE_Y + 22, width:C.STATION_W - 8, height:36, rx:5,
                    fill:'#0b1220', stroke:'#1e2c48' }, bay);
+      el('rect', { x:st.x0 + 4, y:C.LANE_Y + 22, width:C.STATION_W - 8, height:1.3,
+                   fill:'#d9b36a', opacity:.5 }, bay);
       const nm = txt(bay, st.cx, C.LANE_Y + 37, st.n, { fill:'#c6d4e8', 'font-size':9,
             'letter-spacing':.7, 'text-anchor':'middle', 'font-weight':700 });
       const stat = txt(bay, st.cx, C.LANE_Y + 50, '—', { fill:'#334463', 'font-size':8.5,
@@ -1813,6 +1856,11 @@ const ENGINE = {
       const sw = rig.live && !REDUCED.matches ? Math.sin(t * 10 + rig.b.i) * 24 : 0;
       setA(rig.wash.arm, 'transform', 'translate(6,17) rotate(' + sw.toFixed(1) + ')');
     }
+
+    /* the string lights twinkle — scenery, the same class as the stars */
+    if (!REDUCED.matches && SCENE.bulbs)
+      SCENE.bulbs.forEach((b, k) =>
+        setA(b, 'opacity', (.5 + .35 * (.5 + .5 * Math.sin(t * 2.4 + k * 1.7))).toFixed(2)));
 
     /* add-on chip decay */
     for (const id in SCENE.addonRigs){
