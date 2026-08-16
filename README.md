@@ -112,6 +112,22 @@ no way to reach it by waiting.
 Each stage shows `passes × total-ms` from the harness's own `duration_ms` —
 the only numbers on the tunnel, every one measured, reset per ticket.
 
+## Ask at the counter
+
+The wash has a counter: type a job into the box on the page and Claude does
+it while you watch. The server runs your prompt as a real, local, headless
+Claude Code session (`claude -p`) — that session's hooks light the wash live,
+so the cars you see ARE your job being done — and the reply lands back in the
+panel when it finishes.
+
+This does not weaken the redaction, and the distinction matters: the hook
+*stream* (any session's activity) stays as redacted as ever; the counter only
+returns the output of the order **you personally placed through it**, over
+the same tokenised loopback socket, gated exactly like `/close`. One order at
+a time, five-minute cap, never buffered or logged. The spawned session runs
+with your own Claude Code auth and default print-mode permissions — mostly
+reads and searches, which is precisely what lights the tunnel.
+
 ## What the browser can see
 
 **It never receives `tool_input`, `tool_response`, prompt text, or an agent's

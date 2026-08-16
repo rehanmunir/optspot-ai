@@ -69,6 +69,21 @@ body{
 #scene text.sans{font-family:var(--sans)}
 #rows::-webkit-scrollbar{width:8px}
 #rows::-webkit-scrollbar-thumb{background:#1b2740;border-radius:4px}
+#counter{padding:12px 14px;border-bottom:1px solid var(--line)}
+#counter h4{margin:0 0 8px;padding:0;font:11px/1 var(--mono);letter-spacing:.14em;
+            text-transform:uppercase;color:var(--dim);border:0}
+#ask-form{display:flex;gap:6px}
+#ask-in{flex:1;min-width:0;background:#0d1626;border:1px solid var(--line);border-radius:8px;
+        padding:7px 10px;color:var(--ink);font:12px/1.4 var(--sans)}
+#ask-in:focus{outline:none;border-color:#1f4a63}
+#ask-in::placeholder{color:var(--faint)}
+#ask-go{background:#123a4d;color:var(--cyan);border:1px solid #1f4a63;border-radius:8px;
+        padding:7px 13px;font:11px/1 var(--mono);letter-spacing:.08em;cursor:pointer}
+#ask-go:disabled,#ask-in:disabled{opacity:.45;cursor:default}
+#answer{margin-top:9px;font:12px/1.55 var(--sans);color:var(--ink);white-space:pre-wrap;
+        overflow-wrap:break-word;max-height:230px;overflow-y:auto;background:#0d1626;
+        border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+#answer.waiting{color:var(--dim);font:11px/1.5 var(--mono)}
 #ticket{padding:12px 14px 10px;border-bottom:1px solid var(--line)}
 #ticket h4{margin:0 0 8px;padding:0;font:11px/1 var(--mono);letter-spacing:.14em;
            text-transform:uppercase;color:var(--dim);border:0}
@@ -128,6 +143,15 @@ body{
   <main id="stage"><svg id="scene" viewBox="0 0 1760 625" preserveAspectRatio="xMidYMid meet" role="img" aria-label="OPTSPOT AI — a car wash where each car is a task and each washer is a Claude agent"></svg></main>
 
   <aside id="side">
+    <div id="counter">
+      <h4>The Counter</h4>
+      <form id="ask-form">
+        <input id="ask-in" type="text" maxlength="2000" autocomplete="off"
+               placeholder="give Claude a job — watch it get washed">
+        <button id="ask-go" type="submit">ask</button>
+      </form>
+      <div id="answer" hidden></div>
+    </div>
     <div id="ticket">
       <h4>Ticket</h4>
       <div id="tk1">—</div>
@@ -1830,6 +1854,51 @@ window.__CW = {
   FEED, TURN, CARS, SESSION, SCENE, STATIONS, BAYS, C, ACT
 };
 
+/* ── THE COUNTER — hand Claude a job from the wash itself ────────────
+   The server runs it as a real local `claude -p` session; its hooks light
+   the wash live (those cars ARE the job being done), and the reply comes
+   back here — to the person who ordered it, over the same tokenised
+   loopback socket. The redacted stream is untouched by this: the counter
+   only ever returns the output of the order placed through it. */
+const COUNTER = {
+  busy: false,
+  init(){
+    const form = document.getElementById('ask-form');
+    if (!form) return;
+    this.inp = document.getElementById('ask-in');
+    this.btn = document.getElementById('ask-go');
+    this.out = document.getElementById('answer');
+    form.addEventListener('submit', e => { e.preventDefault(); this.ask(); });
+  },
+  async ask(){
+    const q = (this.inp.value || '').trim();
+    if (!q || this.busy) return;
+    if (!window.__CW_LIVE || !window.__CW_LIVE.ask){
+      this.show('demo mode — the counter needs the live server', true); return;
+    }
+    this.busy = true; this.btn.disabled = true; this.inp.disabled = true;
+    this.show('order taken — watch the wash while Claude works on it…', true);
+    try {
+      const r = await fetch(window.__CW_LIVE.ask, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: q })
+      });
+      const d = await r.json();
+      this.show(d.text || '(empty reply)', !d.ok);
+      if (d.ok) this.inp.value = '';
+    } catch (e){
+      this.show('the counter could not reach the wash: ' + e.message, true);
+    }
+    this.busy = false; this.btn.disabled = false; this.inp.disabled = false;
+    HUD.dirty = true;
+  },
+  show(t, waiting){
+    this.out.hidden = false;
+    this.out.textContent = t;
+    this.out.classList.toggle('waiting', !!waiting);
+  }
+};
+
 /* ── boot ──────────────────────────────────────────────────────────────── */
 /* Deferred deliberately: the server injects __CW_LIVE at the very end of the
    document, i.e. AFTER this script tag. Booting synchronously here would
@@ -1838,7 +1907,7 @@ window.__CW = {
    file, including inside a comment or a string — the HTML parser ends the
    script element at the first one it sees, and the server injects at the
    last closing-body tag.) */
-function boot(){ HUD.init(); ENGINE.init(); HUD.render(); }
+function boot(){ HUD.init(); COUNTER.init(); ENGINE.init(); HUD.render(); }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
 </script>

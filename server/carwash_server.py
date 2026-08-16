@@ -10,6 +10,12 @@ Three rules this file exists to enforce:
      replayed to a later reconnect or surface in /state.
   3. Loopback + Host check + per-launch token. No CORS headers, ever.
 
+The one write path besides ingest is /ask — the page's counter. It runs
+`claude -p <prompt>` locally, as the user, and returns that job's reply to
+the person who typed it. This does not weaken the redaction: the hook STREAM
+stays redacted; the counter only ever returns the output of the order placed
+through it. Same token gate as /close, one order at a time, hard timeout.
+
 The server does NOT know what a "wash station" is. Deriving stations from tool
 names is the viewer's job; keeping that out of here means this file stays a
 dumb redacting pipe with one responsibility.
@@ -17,7 +23,7 @@ dumb redacting pipe with one responsibility.
 from __future__ import annotations
 
 import argparse, collections, hmac, itertools, json, os, queue, re, secrets
-import signal, sys, threading, time, webbrowser
+import shutil, signal, subprocess, sys, threading, time, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -272,6 +278,32 @@ def translate(p):
         return
 
 
+# ── the counter ────────────────────────────────────────────────────────────
+_ask_busy = threading.Lock()
+
+
+def run_claude(prompt):
+    exe = shutil.which("claude")
+    if not exe:
+        return (False, "the `claude` CLI is not on PATH for the wash server")
+    # A fresh-terminal environment. The wash server is often launched from
+    # inside a Claude session, and any inherited CLAUDE_* state makes the
+    # child CLI think it is nested — or, worse, differently authenticated
+    # ("Not logged in" with a perfectly logged-in user).
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+    try:
+        r = subprocess.run([exe, "-p", prompt],
+                           capture_output=True, text=True, timeout=300,
+                           cwd=os.path.expanduser("~"), env=env)
+    except subprocess.TimeoutExpired:
+        return (False, "timed out after five minutes")
+    except Exception as e:
+        return (False, "could not run claude: %s" % e)
+    if r.returncode != 0:
+        return (False, (r.stderr or r.stdout or "claude exited %d" % r.returncode)[-4000:])
+    return (True, (r.stdout or "").strip()[:100000])
+
+
 # ── http ───────────────────────────────────────────────────────────────────
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -321,12 +353,38 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 _counters["bad"] += 1                  # a bad event must not kill the server
             return
+        m = re.match(r"^/c/([0-9a-f]{32})/ask$", self.path)
+        if m and self._tok(m.group(1)):
+            return self._ask()
         m = re.match(r"^/c/([0-9a-f]{32})/close$", self.path)
         if m and self._tok(m.group(1)):
             self._send(b"closing")
             threading.Thread(target=self._bye, daemon=True).start()
             return
         return self._deny()
+
+    def _ask(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > 8192:
+            return self._send(b'{"ok":false,"text":"prompt too long"}', "application/json", 413)
+        try:
+            body = json.loads(self.rfile.read(n) if n else b"{}")
+            prompt = str(body.get("prompt") or "").strip()
+        except Exception:
+            prompt = ""
+        if not prompt or len(prompt) > 4000:
+            return self._send(b'{"ok":false,"text":"empty or oversized prompt"}',
+                              "application/json", 400)
+        if not _ask_busy.acquire(blocking=False):
+            return self._send(b'{"ok":false,"text":"the counter is busy - one order at a time"}',
+                              "application/json", 409)
+        try:
+            ok, text = run_claude(prompt)
+        finally:
+            _ask_busy.release()
+        # the reply goes back over the same tokenised loopback socket it was
+        # ordered on, and is never buffered, logged, or written anywhere
+        self._send(json.dumps({"ok": ok, "text": text}).encode(), "application/json")
 
     def _bye(self):
         time.sleep(0.2)
@@ -355,8 +413,8 @@ class Handler(BaseHTTPRequestHandler):
                 html = f.read()
         except OSError:
             return self._send(b"viewer not found", "text/plain", 500)
-        inject = ('<script>window.__CW_LIVE={stream:"/c/%s/stream",close:"/c/%s/close"};</script>'
-                  % (TOKEN, TOKEN)).encode()
+        inject = ('<script>window.__CW_LIVE={stream:"/c/%s/stream",close:"/c/%s/close",'
+                  'ask:"/c/%s/ask"};</script>' % (TOKEN, TOKEN, TOKEN)).encode()
         # Inject before the LAST closing body tag, not the first. Injecting at
         # the first one puts the token script inside whatever came before it —
         # and if that is the viewer's own <script>, the browser terminates the
