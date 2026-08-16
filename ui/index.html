@@ -398,6 +398,7 @@ function makeCarModel(opts){
     x: opts.x, targetX: opts.x,
     grime: C.GRIME_START, washed: 0,
     vx: 0, wheelA: 0, wobble: (seedN % 628) / 100,
+    settle: 0, hop: 0, launch: 0, antA: 0, antV: 0,
     startedAt: Date.now(), endedAt: 0,
     // lane car: WASH · RINSE · DRYING · BYE · REJECT · LEAVING · GONE
     state: opts.state || 'WASH',
@@ -471,6 +472,7 @@ function finishCallCar(tid, ok, ms){
     TURN.washed++; SESSION.washed++;
     WORLD.sparkleAt = CLOCK.now();
     RINGS.at(car.x, C.LANE_Y - 34);
+    car.hop = 1;                            // the little hop of a job well done
   } else {
     car.state = 'REJECT';                   // no towel for a failed job
     TURN.failed++;
@@ -505,6 +507,18 @@ const setA = (n, k, v) => { if (n.__c === undefined) n.__c = {}; if (n.__c[k] !=
    the evidence arrives), and the PIXELS ease toward them. Lights warm up
    fast and cool down slower, like real lamps. Hidden tab: snap, no easing
    debt. */
+const BLINK = {
+  faces: [],
+  reg(eyes){ if (eyes) this.faces.push({ eyes, at: 0, next: 1.5 + Math.random() * 4 }); },
+  step(t){
+    for (const f of this.faces){
+      if (t > f.next){ f.at = t; f.next = t + 2.4 + Math.random() * 3.6; }
+      const shut = (t - f.at) < .13;
+      for (const e of f.eyes) setA(e, 'opacity', shut ? '0' : '1');
+    }
+  }
+};
+
 const FADE = {
   jobs: new Map(),
   to(node, target, k){
@@ -561,6 +575,11 @@ function makeCar(model){
   el('rect', { x:4,   y:29, width:8, height:6, rx:2.5, fill:'#ff6a5c' }, paint);
   el('rect', { x:4, y:24, width:122, height:3, rx:1.5, fill:'#fff', opacity:'.20' }, paint);
 
+  // the antenna: pure follow-through — it lags the body and whips on stops
+  const ant = el('g', {}, g);
+  el('rect', { x:13.3, y:10, width:1.4, height:14, rx:.7, fill:'#8fa2bd' }, ant);
+  el('circle', { cx:14, cy:9, r:1.6, fill:'#8fa2bd' }, ant);
+
   const wheels = [];
   for (const wx of [30, 100]){
     const w = el('g', { transform:'translate(' + wx + ',46)' }, g);
@@ -612,7 +631,7 @@ function makeCar(model){
   const pb = el('rect', { x:16, y:-16, width:98, height:15, rx:4, fill:'#0b1220',
                           stroke:'#22314e' }, plate);
   const pt = txt(plate, 65, -5.4, '', { fill:'#9fb0c8', 'font-size':8.5, 'text-anchor':'middle' });
-  return { g, wheels, grime, shine, wet, foamG, glassGlow, gleam, gleamBar,
+  return { g, wheels, ant, grime, shine, wet, foamG, glassGlow, gleam, gleamBar,
            plate, plateText: pt, plateBox: pb };
 }
 
@@ -637,8 +656,9 @@ function makeCustomers(){
     el('rect', { x:-8, y:10, width:16, height:5, rx:2.5, fill:'#fff', opacity:'.12' }, b);
     el('circle', { cx:0, cy:3, r:7, fill:'#f0d2b4' }, b);
     el('path', { d:'M-7,1 A7,7 0 0 1 7,1 L7,-1 A7,7 0 0 0 -7,-1 Z', fill:hair }, b);
-    el('circle', { cx:-2.4, cy:3.4, r:1, fill:'#1b2333' }, b);
-    el('circle', { cx:2.4,  cy:3.4, r:1, fill:'#1b2333' }, b);
+    const e1 = el('circle', { cx:-2.4, cy:3.4, r:1, fill:'#1b2333' }, b);
+    const e2 = el('circle', { cx:2.4,  cy:3.4, r:1, fill:'#1b2333' }, b);
+    BLINK.reg([e1, e2]);
     return b;
   };
   person(0, '#2b3242', '#1a1e29', false);               // long dark coat
@@ -670,9 +690,9 @@ function makeWasher(crew){
   el('circle', { cx:0, cy:5, r:7.2, fill:'#f0d2b4' }, body);
   el('path', { d:'M-7.6,3 A7.6,7.6 0 0 1 7.6,3 L7.6,4.4 L-7.6,4.4 Z', fill:crew.cap }, body);
   el('rect', { x:5, y:2.6, width:6, height:2, rx:1, fill:crew.cap }, body);
-  el('circle', { cx:2.6, cy:5.4, r:1.05, fill:'#1b2333' }, body);
-  el('circle', { cx:6.0, cy:5.4, r:1.05, fill:'#1b2333' }, body);
-  return { g, body, arm, wand };
+  const eL = el('circle', { cx:2.6, cy:5.4, r:1.05, fill:'#1b2333' }, body);
+  const eR = el('circle', { cx:6.0, cy:5.4, r:1.05, fill:'#1b2333' }, body);
+  return { g, body, arm, wand, eyes: [eL, eR] };
 }
 
 /* Confirmation rings — one expanding pulse at the car, on the frame its
@@ -996,6 +1016,7 @@ const SCENE = {
 
     /* the member of staff, always present — this is their post */
     const wr = makeWasher(person);
+    BLINK.reg(wr.eyes);
     wr.g.setAttribute('transform', 'translate(' + (z.cx - 88) + ',' + C.LANE_Y + ')');
     const holder = el('g', { opacity:.45 }, this.layers.crew);
     holder.appendChild(wr.g);
@@ -1058,6 +1079,7 @@ const SCENE = {
          one member of the crew you most want to see is the one hidden. */
       const helper = el('g', { opacity:0 }, this.layers.crew);
       const wr = makeWasher(crewById[LEAD]);
+      BLINK.reg(wr.eyes);
       wr.g.setAttribute('transform', 'translate(' + (st.cx - 96) + ',' + C.LANE_Y + ')');
       helper.appendChild(wr.g);
 
@@ -1521,18 +1543,43 @@ const ENGINE = {
         // secondary motion, all of it earned: shake under the rollers the car
         // is really beneath, a soft wash bob while its call runs, an engine
         // idle at the hold line, a lean with real acceleration
-        let bobY = 0, tilt = 0;
+        let bobY = 0, tilt = 0, sy = 1;
         if (!REDUCED.matches && !snap){
           tilt = Math.max(-2.2, Math.min(2.2, -c.vx * 0.004));
+
+          // follow-through: a car that just stopped settles on its springs
+          const fast = Math.abs(c.vx) > 40;
+          if (c.__fast && !fast && Math.abs(c.vx) < 12) c.settle = 1;
+          c.__fast = fast;
+          if (c.settle > .01){
+            c.settle *= Math.exp(-dt * 3.4);
+            bobY += Math.sin(tN * 17 + c.wobble) * 2.6 * c.settle;
+            tilt += Math.sin(tN * 17 + c.wobble) * 1.1 * c.settle;
+          }
+          // anticipation: one rock-back beat before launching off
+          if (c.state === 'LEAVING' && !c.__launched){ c.__launched = true; c.launch = 1; }
+          if (c.launch > .01){ c.launch *= Math.exp(-dt * 5); tilt -= 3.2 * c.launch; }
+          // the completion hop (armed only by a real tool.finished)
+          if (c.hop > .01){ c.hop *= Math.exp(-dt * 4.2);
+                            bobY -= Math.sin(Math.PI * (1 - c.hop)) * 5; }
+
           if (c.state === 'WASH'){
             const underRoll = c.x >= STATIONS[2].x0 - 18 && c.x <= STATIONS[2].x1 + 18;
-            bobY = underRoll            ? Math.sin(tN * 34 + c.wobble) * 1.8
-                 : Math.abs(c.vx) < 6   ? Math.sin(tN * 12 + c.wobble) * .45
-                 :                        Math.sin(tN * 5 + c.wobble) * .9;
+            if (underRoll){
+              // squash: the brushes genuinely press on this roof
+              bobY += Math.sin(tN * 34 + c.wobble) * 1.8;
+              sy = 1 - .026 - .02 * (.5 + .5 * Math.sin(tN * 34 + c.wobble));
+            } else bobY += Math.abs(c.vx) < 6 ? Math.sin(tN * 12 + c.wobble) * .45
+                                              : Math.sin(tN * 5 + c.wobble) * .9;
           }
+          // antenna: underdamped spring chasing the body — lag, then whip
+          const antT = Math.max(-26, Math.min(26, -tilt * 5 - c.vx * .012));
+          c.antV = (c.antV + (antT - c.antA) * dt * 90) * Math.exp(-dt * 5);
+          c.antA += c.antV * dt * 8;
+          if (c.rig.ant) setA(c.rig.ant, 'transform', 'rotate(' + c.antA.toFixed(1) + ' 14 24)');
         }
         setA(c.rig.g, 'transform', 'translate(' + (c.x - 65 * s).toFixed(1) + ',' +
-             (C.LANE_Y - 57 * s + bobY).toFixed(1) + ') scale(' + s + ')' +
+             (C.LANE_Y - 57 * s * sy + bobY).toFixed(1) + ') scale(' + s + ',' + (s * sy).toFixed(4) + ')' +
              (tilt ? ' rotate(' + tilt.toFixed(2) + ' 65 46)' : ''));
         setA(c.rig.grime, 'opacity', c.grime.toFixed(3));
         setA(c.rig.shine, 'opacity', shineFor(c.grime));
@@ -1595,16 +1642,26 @@ const ENGINE = {
     for (const r of SCENE.stationRigs){
       if (!r.live) continue;
       const hx = (r.st.i === 3 && airW) ? airW.x - 96 : r.st.cx - 96;
-      setA(r.wash.g, 'transform', 'translate(' + hx.toFixed(1) + ',' + C.LANE_Y + ')');
+      // leaning into the work, not standing at attention beside it
+      setA(r.wash.g, 'transform', 'translate(' + hx.toFixed(1) + ',' + C.LANE_Y + ') rotate(-5)');
       const sw = REDUCED.matches ? 0 : Math.sin(t * 9 + r.st.i * 1.3) * 24;
       setA(r.wash.arm, 'transform', 'translate(6,17) rotate(' + sw.toFixed(1) + ')');
     }
-    /* Josh, Jeremy and Levi work only during their own phase; off-shift they
-       stand at their post, dimmed, rather than miming work nobody asked for. */
-    for (const r of SCENE.zoneRigs){
-      const sw = r.live && !REDUCED.matches
-        ? (r.z.id === 'BYE' ? Math.sin(t * 3) * 34 : Math.sin(t * 7.5) * 20) : 0;
-      setA(r.wash.arm, 'transform', 'translate(6,17) rotate(' + sw.toFixed(1) + ')');
+    /* Josh beckons, Jeremy scrubs, Levi actually WAVES — arm raised,
+       oscillating from the shoulder. Off-shift they breathe at their post
+       rather than miming work nobody asked for. */
+    for (let zi = 0; zi < SCENE.zoneRigs.length; zi++){
+      const r = SCENE.zoneRigs[zi];
+      if (!r.baseT) r.baseT = r.wash.g.getAttribute('transform');
+      let arm = 0;
+      if (r.live && !REDUCED.matches)
+        arm = r.z.id === 'BYE'     ? -62 + Math.sin(t * 9) * 16
+            : r.z.id === 'CHECKIN' ? -16 + Math.sin(t * 4) * 9
+            :                         Math.sin(t * 7.5) * 20;
+      setA(r.wash.arm, 'transform', 'translate(6,17) rotate(' + arm.toFixed(1) + ')');
+      if (!REDUCED.matches)
+        setA(r.wash.g, 'transform', r.baseT + ' translate(0,' +
+             (Math.sin(t * 1.7 + zi * 2.1) * .7).toFixed(2) + ')');
     }
 
     /* wash layers, per car — each moves ONLY while ITS call is genuinely in
@@ -1653,6 +1710,17 @@ const ENGINE = {
       if (!REDUCED.matches){
         setA(bcar.rig.gleamBar, 'x', (-30 + ((t * 95) % 190)).toFixed(1));
         if (Math.random() < .22) P.spawn(bcar.x + rnd(-62,62), C.LANE_Y - rnd(20,64), 'spark');
+      }
+    }
+
+    /* everyone alive blinks and breathes */
+    if (!REDUCED.matches){
+      BLINK.step(t);
+      for (const cg of [SCENE.custIn, SCENE.custOut]){
+        if (!cg) continue;
+        if (!cg.__baseT) cg.__baseT = cg.getAttribute('transform');
+        setA(cg, 'transform', cg.__baseT + ' translate(0,' +
+             (Math.sin(t * 1.9) * .8).toFixed(2) + ')');
       }
     }
 
