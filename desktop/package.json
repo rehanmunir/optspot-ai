@@ -1,0 +1,14 @@
+{
+  "name": "agent-carwash-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Native desktop shell for the Agent Car Wash viewer",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

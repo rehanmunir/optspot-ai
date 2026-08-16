@@ -1,0 +1,1784 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>OPTSPOT AI</title>
+<style>
+/* ══ palette ══════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#060a12; --bg2:#0a1020; --panel:#0c1322; --line:#1b2740;
+  --ink:#e9eff9; --dim:#7c8ca8; --faint:#4b5a75;
+  --cyan:#3fd8ff; --magenta:#ff53d4; --amber:#ffc23a;
+  --water:#4fb2ff; --foam:#f2f8ff; --chrome:#a8bad2;
+  --ok:#3ee08c; --err:#ff6060;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Inter,Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  background:radial-gradient(1200px 700px at 50% -10%,#122140 0%,var(--bg2) 45%,var(--bg) 100%);
+  color:var(--ink);font-family:var(--sans);overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ══ shell ════════════════════════════════════════════════════════════════ */
+#app{display:grid;grid-template-columns:minmax(0,1fr) 336px;grid-template-rows:auto 1fr auto;
+     height:100%;max-width:100vw;overflow:hidden}
+#top{grid-column:1/3;display:flex;align-items:center;gap:16px;padding:10px 16px;
+     border-bottom:1px solid var(--line);background:rgba(8,13,24,.72);backdrop-filter:blur(8px)}
+/* The scene is absolutely positioned so its intrinsic size can never drive
+   layout. As a flex/grid item an <svg> contributes its own aspect-derived
+   width as an automatic minimum, which pushed the 1fr column wider than the
+   viewport and clipped the right-hand stations off screen in any narrow
+   window. Taking it out of flow makes the container size the scene, never the
+   other way round. */
+#stage{position:relative;min-width:0;min-height:0;overflow:hidden}
+#scene{position:absolute;inset:0;width:100%;height:100%;display:block}
+#side{border-left:1px solid var(--line);background:rgba(10,16,28,.72);display:flex;
+      flex-direction:column;min-height:0}
+#bot{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:7px 16px;
+     border-top:1px solid var(--line);background:rgba(8,13,24,.72);
+     font:11px/1.5 var(--mono);color:var(--faint);flex-wrap:wrap}
+
+/* ══ header ═══════════════════════════════════════════════════════════════ */
+.brand{font-weight:700;letter-spacing:.16em;font-size:13px;text-transform:uppercase;
+       background:linear-gradient(90deg,var(--cyan),var(--magenta));
+       -webkit-background-clip:text;background-clip:text;color:transparent;white-space:nowrap}
+.stat{display:flex;align-items:baseline;gap:6px;font:11px/1 var(--mono);color:var(--dim)}
+.stat b{font-size:16px;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.spacer{flex:1}
+.conn{display:inline-flex;align-items:center;gap:7px;font:11px/1 var(--mono);
+      padding:5px 10px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.conn .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+.conn.ok{color:var(--ok);border-color:#12472f}
+.conn.ok .dot{background:var(--ok);box-shadow:0 0 9px var(--ok)}
+.conn.off{color:var(--amber);border-color:#4a3a12}
+.conn.off .dot{background:var(--amber)}
+.conn.demo{color:var(--magenta);border-color:#4a1440}
+.conn.demo .dot{background:var(--magenta)}
+
+/* ══ side panel ═══════════════════════════════════════════════════════════ */
+#side h4{margin:0;padding:11px 14px;font:11px/1 var(--mono);letter-spacing:.14em;
+         text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--line);
+         display:flex;justify-content:space-between;align-items:center}
+#rows{overflow-y:auto;flex:1;padding:4px 0;scrollbar-width:thin}
+#scene text{font-family:var(--mono)}
+#scene text.sans{font-family:var(--sans)}
+#rows::-webkit-scrollbar{width:8px}
+#rows::-webkit-scrollbar-thumb{background:#1b2740;border-radius:4px}
+.ev{display:grid;grid-template-columns:12px 62px 1fr auto;gap:8px;align-items:baseline;
+    padding:5px 14px;font:11px/1.45 var(--mono);border-bottom:1px solid rgba(27,39,64,.4)}
+.ev .s{font-size:9px;line-height:1.6}
+.ev .who{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev .tool{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev .tool i{color:var(--faint);font-style:normal}
+.ev .ms{color:var(--faint);font-variant-numeric:tabular-nums}
+.s-run{color:var(--cyan);animation:pulse 1.1s ease-in-out infinite}
+.s-done{color:var(--ok)} .s-err{color:var(--err)} .s-note{color:var(--magenta)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.empty{padding:16px 14px;font:11px/1.6 var(--mono);color:var(--faint)}
+.empty b{color:var(--dim);font-weight:600}
+
+/* ══ footer ═══════════════════════════════════════════════════════════════ */
+#bot .k{color:var(--dim)}
+#bot .sep{color:#243350}
+
+@media (prefers-reduced-motion:reduce){ .s-run{animation:none;opacity:.8} }
+/* The stage is wide (four big tunnel stages plus three staffed zones), so it
+   needs room before the side panel is worth its width. */
+@media (max-width:1180px){
+  #app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr 190px auto}
+  #top,#bot{grid-column:1}
+  #side{border-left:0;border-top:1px solid var(--line)}
+}
+@media (max-width:680px){
+  #top{flex-wrap:wrap;row-gap:6px}
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header id="top">
+    <span class="brand">OPTSPOT AI</span>
+    <span class="stat"><b id="s-wash">0</b> washing</span>
+    <span class="stat"><b id="s-crew">0</b> crew</span>
+    <span class="stat"><b id="s-queue">0</b> queued</span>
+    <span class="stat"><b id="s-done">0</b> finished</span>
+    <span class="spacer"></span>
+    <span class="conn" id="conn"><span class="dot"></span><span id="conn-t">starting…</span></span>
+  </header>
+
+  <main id="stage"><svg id="scene" viewBox="0 0 1760 1000" preserveAspectRatio="xMidYMid meet" role="img" aria-label="OPTSPOT AI — a car wash where each car is a task and each washer is a Claude agent"></svg></main>
+
+  <aside id="side">
+    <h4>Activity <span id="side-n" style="color:var(--faint)"></span></h4>
+    <div id="rows"><p class="empty">Waiting for the first event…</p></div>
+  </aside>
+
+  <footer id="bot">
+    <span><span class="k">car</span> = one turn</span><span class="sep">·</span>
+    <span><span class="k">washer</span> = one agent</span><span class="sep">·</span>
+    <span><span class="k">jets on</span> = a real tool call is in flight</span><span class="sep">·</span>
+    <span>a car is never clean until the turn actually ends</span>
+    <span class="spacer"></span>
+    <span id="f-seed"></span>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ══════════════════════════════════════════════════════════════════════════
+   OPTSPOT AI — Claude Code's own agents and tool calls, live, as a car wash.
+
+   THE METAPHOR, and it is load-bearing rather than decorative:
+     a CAR       is one turn (your prompt in → Claude's turn ends)
+     a WASHER    is one agent (main Claude, plus every subagent)
+     a DETAIL BAY is one subagent working its own delegated task
+     JETS RUNNING is a real tool call in flight — this is the truth channel
+
+   THE INVARIANT (inherited from agent-office, and the reason both exist):
+     A car with a live tool call is owned by real events. No ambient or
+     choreographic force may move it; only a real terminal event releases it.
+     `liveN` is a counter, never a boolean, so 50 overlapping calls start the
+     jets once and stop them once. syncTruth() is the jets' only writer.
+
+   Consequences, all deliberate:
+     - The car advances only on evidence. A station is entered because a tool
+       of that family really ran, never because time passed.
+     - There is no progress bar and no percentage, because the hook stream
+       cannot know how much of a turn remains. Grime thins as real work
+       completes but plateaus; only `turn.ended` makes a car clean.
+     - A quiet wash is an empty forecourt, and that is honest.
+     - The wash never invents activity and never invents a fault.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── M01 · CONFIG — every tunable, no magic literals below ─────────────── */
+const C = Object.freeze({
+  DT_CLAMP: 0.1,
+  // lane geometry (viewBox units)
+  VB_W: 1760, VB_H: 1000,
+  LANE_Y: 430,                       // ground line the cars sit on
+  TUNNEL_X0: 280, TUNNEL_X1: 1220,   // 4 stages × 235
+  STATION_W: 235,
+  PARK_X: 1830,                      // off-stage right
+  CAR_SCALE: 1.1, BAY_CAR_SCALE: 1.0,
+  // motion
+  ROLL_SPEED: 300,                   // px/s the car eases at
+  ARRIVE_EPS: 1.2, WHEEL_R: 11,
+  BAY_LINGER: 2.2,
+  // The outro after a turn genuinely ended. These are the ONLY timed moves in
+  // the whole page, and they run strictly after a real terminal event — never
+  // during work, where a timer would be inventing progress.
+  DRY_T: 3.2, BYE_T: 3.0,
+  // grime → shine. Real completions thin it; only turn.ended clears it.
+  GRIME_START: .92, GRIME_FLOOR: .24, GRIME_K: 5.0,
+  // particles
+  POOL: 150, EMIT_HZ: 34,
+  // feed
+  FEED_BUDGET: 8, FEED_Q_MAX: 2000, ROWS_MAX: 200, ROWS_SHOWN: 60,
+  HUD_HZ: 5,
+  BAYS: 6
+});
+
+const QS      = new URLSearchParams(location.search);
+const DEBUG   = QS.get('debug') === '1';
+const REDUCED = QS.get('reduced') === '1'
+  ? { matches: true }
+  : (window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false });
+
+/* ─── M02 · RNG — seeded so a replay is reproducible ────────────────────── */
+function mulberry32(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const SEED = (function(){
+  const raw = QS.get('seed');
+  if (raw !== null){ const n = Number(raw); if (Number.isFinite(n) && n >= 0) return (n >>> 0); }
+  return (Date.now() >>> 0);
+})();
+const rng      = mulberry32(SEED);
+const rnd      = (a,b) => a + (b - a) * rng();
+const pick     = arr => arr[Math.floor(rng() * arr.length) % arr.length];
+const hashStr  = s => { let h = 2166136261; for (let i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = Math.imul(h,16777619);} return h >>> 0; };
+const clamp    = (v,a,b) => v < a ? a : v > b ? b : v;
+
+/* ─── M03 · CLOCK ───────────────────────────────────────────────────────── */
+const CLOCK = { t:0, step(dt){ const d = Math.min(dt, C.DT_CLAMP); this.t += d; return d; }, now(){ return this.t; } };
+
+/* ─── M04 · WORLD — the wash itself ─────────────────────────────────────── */
+/* Stations are ordered. A car's stage index RISES only on a real call of a
+   later family; AIR DRY is entered by the exit ride after turn.ended, and by
+   nothing else. */
+/* FOUR stages — the ones a real tunnel has: water, soap, rollers, air.
+   Each is entered on evidence, never on a timer. The stream's tool families
+   group naturally onto the four:
+     WATER POUR   reading & searching — soaking the task before touching it
+     SOAP & FOAM  writing & editing — laying the new material on
+     ROLLERS      commands & partner services — scrubbing it all over
+     AIR DRY      the exit ride — fires only after the turn really ends
+   A real tunnel is a CONVEYOR: the chain runs one way and the car never rolls
+   backwards. So the car's position is the furthest stage evidenced this turn
+   (a high-water mark, still advanced only by real calls). When an
+   earlier-family call runs afterwards, that stage's lamp lights and its
+   washer takes the work TO the car — a touch-up crew, like the hand-prep
+   attendants in a real wash — counted on the ticket as touch-ups. */
+const STATIONS = [
+  { id:'water', n:'WATER POUR',  sub:'soaking — reading & searching',  jet:'pour',  gear:'pipes'   },
+  { id:'soap',  n:'SOAP & FOAM', sub:'lathering — writing & editing',  jet:'foam',  gear:'cannon'  },
+  { id:'roll',  n:'ROLLERS',     sub:'scrubbing — commands & services',jet:'scrub', gear:'rollers' },
+  { id:'air',   n:'AIR DRY',     sub:'exit ride — turn complete',      jet:'air',   gear:'blower'  }
+];
+STATIONS.forEach((s, i) => {
+  s.i = i;
+  s.x0 = C.TUNNEL_X0 + i * C.STATION_W;
+  s.x1 = s.x0 + C.STATION_W;
+  s.cx = s.x0 + C.STATION_W / 2;
+  s.passes = 0; s.ms = 0;            // real counters, filled from real durations
+});
+
+/* ── THE FOUR PHASES OF A TURN, and who is on each ────────────────────────
+   The tunnel is only the middle of the story. A turn also has a beginning
+   (Claude reading the job before it touches a single tool) and an end (the
+   turn genuinely over, results handed back). Each phase has one member of
+   staff, and each is entered on a real signal:
+
+     CHECK-IN   Josh    prompt received, and NO tool call has run yet.
+                        This is thinking, and it is evidenced rather than
+                        guessed: the turn is open and liveN is 0.
+     TUNNEL     Nick    a tool call is in flight — the four stages.
+     TOWEL      Jeremy  `turn.ended` fired. Towel dry and vacuum the inside:
+                        the work is done and the car is being finished off.
+     GOODBYE    Levi    the ticket is read back and the customer leaves.
+
+   Josh and Nick are driven purely by events. Jeremy and Levi run on a timer,
+   but ONLY after a real `turn.ended` — an outro for something that genuinely
+   happened, never a claim about work still in progress. */
+const STAFF = {
+  josh:   { id:'josh',   name:'Josh',   role:'Check-in',       suit:'#ffc23a', cap:'#5c4210' },
+  nick:   { id:'nick',   name:'Nick',   role:'Tunnel',         suit:'#3fd8ff', cap:'#0f4d63' },
+  jeremy: { id:'jeremy', name:'Jeremy', role:'Towel & interior', suit:'#3ee08c', cap:'#12472f' },
+  levi:   { id:'levi',   name:'Levi',   role:'Goodbye',        suit:'#ff53d4', cap:'#5a1246' }
+};
+const ZONES = {
+  CHECKIN: { id:'CHECKIN', x0:40,   x1:250,  staff:'josh',   n:'CHECK-IN',
+             sub:'welcome — reading the job' },
+  DRY:     { id:'DRY',     x0:1250, x1:1480, staff:'jeremy', n:'TOWEL & INTERIOR',
+             sub:'towel dry · vacuum inside' },
+  BYE:     { id:'BYE',     x0:1505, x1:1715, staff:'levi',   n:'GOODBYE',
+             sub:'thanks — see you next time' }
+};
+for (const k in ZONES){ const z = ZONES[k]; z.cx = (z.x0 + z.x1) / 2; }
+
+/* tool → station. First match wins. A tool that matches nothing does NOT move
+   the car: we will not guess a stage we have no evidence for. */
+const TOOL_STATION = [
+  [/^(Read|NotebookRead|TaskOutput|TaskGet|TaskList|Grep|Glob|ToolSearch|WebFetch|WebSearch)$/, 0],
+  [/^(Write|Edit|NotebookEdit|MultiEdit)$/,                                                    1],
+  [/^(Bash|BashOutput|KillShell)$|^mcp__/,                                                     2]
+  // stage 3 (AIR DRY) is the exit ride: reachable from turn.ended and nowhere
+  // else. Plan/wrap-up tools are checklist work — an add-on, not a wash stage.
+];
+const stationFor = t => { for (const r of TOOL_STATION) if (r[0].test(t)) return r[1]; return -1; };
+
+/* Add-on services: real tools that are not a wash stage. Calling in extra
+   crew, keeping the checklist, and asking the customer all happen *beside*
+   the tunnel. Everything unrecognised joins them rather than being guessed
+   at. */
+const ADDONS = [
+  { id:'crew', n:'EXTRA CREW',  re:/^(Agent|Task|Workflow)$/ },
+  { id:'plan', n:'CHECKLIST',   re:/^(TodoWrite|ExitPlanMode|SlashCommand|Skill|TaskCreate|TaskUpdate)$/ },
+  { id:'ask',  n:'CUSTOMER OK', re:/^(AskUserQuestion)$/ },
+  { id:'misc', n:'HAND FINISH', re:/./ }
+];
+const addonFor = t => ADDONS.find(a => a.re.test(t)) || ADDONS[ADDONS.length - 1];
+
+/* Detail bays — one per concurrent subagent. */
+const BAYS = [];
+for (let i = 0; i < C.BAYS; i++){
+  const w = 272, x = 40 + i * 282;
+  BAYS.push({ i, x, w, cx: x + w/2, y: 528, h: 214, ground: 708, actorId: null, freeAt: 0 });
+}
+
+/* ─── M05 · CREW — who is holding the wand ──────────────────────────────── */
+const CREW = [
+  { id:'ace',   name:'Ace',   role:'Lead',       suit:'#3fd8ff', cap:'#0f4d63' },
+  { id:'scout', name:'Scout', role:'Walk-around',suit:'#3ee08c', cap:'#12472f' },
+  { id:'iris',  name:'Iris',  role:'Service',    suit:'#b98cff', cap:'#3a2560' },
+  { id:'dex',   name:'Dex',   role:'Detailer',   suit:'#ffc23a', cap:'#5c4210' },
+  { id:'vera',  name:'Vera',  role:'Inspector',  suit:'#ff53d4', cap:'#5a1246' },
+  { id:'milo',  name:'Milo',  role:'Polish',     suit:'#ff8a4c', cap:'#5c2e12' },
+  { id:'rae',   name:'Rae',   role:'Trim',       suit:'#5fb0ff', cap:'#123a63' }
+];
+const crewById = {}; CREW.forEach(c => crewById[c.id] = c);
+const LEAD = 'ace';
+const AGENT_CREW = {
+  'Explore':'scout', 'explore':'scout', 'Plan':'iris', 'plan':'iris',
+  'general-purpose':'dex', 'claude':'dex', 'code-reviewer':'vera',
+  'statusline-setup':'milo', 'output-style-setup':'milo'
+};
+function crewFor(type, label){
+  const t = String(type || '');
+  if (AGENT_CREW[t]) return crewById[AGENT_CREW[t]];
+  const pool = CREW.filter(c => c.id !== LEAD);
+  return pool[hashStr(t + '|' + (label || '')) % pool.length];
+}
+
+/* Vehicle shapes — variety only, never meaning. */
+const KINDS = ['sedan','hatch','suv','van','coupe','wagon'];
+const PAINT = ['#d9534f','#4a90d9','#e8b93c','#5fbf7f','#c86fd0','#e0e6ef','#f08a3c','#6f7fd0'];
+
+/* ─── M06 · CARS ────────────────────────────────────────────────────────── */
+let carSeq = 0;
+function makeCarModel(opts){
+  const seedN = hashStr('car' + (++carSeq) + SEED);
+  return {
+    id: 'car' + carSeq,
+    kind:  opts.kind  || KINDS[seedN % KINDS.length],
+    paint: opts.paint || PAINT[(seedN >>> 3) % PAINT.length],
+    label: opts.label || '',
+    station: -1,                 // -1 = at the gate, not yet in the tunnel
+    x: opts.x, targetX: opts.x,
+    grime: C.GRIME_START, washed: 0, touch: 0,
+    startedAt: Date.now(), endedAt: 0,
+    // CHECKIN · IN_WASH · DRYING · BYE · LEAVING · GONE
+    state: opts.state || 'CHECKIN',
+    unattended: !!opts.unattended,
+    rig: null, bay: null
+  };
+}
+/* Grime thins with real completed work but plateaus at GRIME_FLOOR. It reaches
+   0 in exactly one place: turn.ended / actor.stopped. Nothing here is a
+   progress estimate and it must never be read as one. */
+/* Shine is capped while washing. Only grime === 0 — which only turn.ended /
+   actor.stopped can produce — gives a fully shiny car. The gap between .45 and
+   1 is the visual difference between "work happened" and "this is finished",
+   and it must never be closed by elapsed time. */
+function shineFor(grime){
+  if (grime <= 0) return '1';
+  return (0.45 * (1 - grime / C.GRIME_START)).toFixed(3);
+}
+function regrime(car){
+  if (car.state !== 'CHECKIN' && car.state !== 'IN_WASH'){ car.grime = 0; return; }
+  car.grime = C.GRIME_FLOOR + (C.GRIME_START - C.GRIME_FLOOR) * Math.exp(-car.washed / C.GRIME_K);
+}
+
+const LANE  = { car:null, queue:[], finished:0 };
+const WORLD = { cars:[], sparkleAt:0 };
+
+function laneAdmit(car){
+  // The counters under each station describe the car currently in the tunnel.
+  // Carrying the previous car's tallies over would credit this one with steps
+  // it never took.
+  for (const st of STATIONS){ st.passes = 0; st.ms = 0; }
+  LANE.car = car; WORLD.cars.push(car);
+  car.x = ZONES.CHECKIN.cx; car.targetX = car.x; car.state = 'CHECKIN';
+  SCENE.mountLaneCar(car);
+}
+
+/* The outro. `turn.ended` really fired, so the work is over and what follows
+   is the finish, not a claim about progress: the car rides the conveyor out
+   through AIR DRY (the blowers fire as it passes — powered by the terminal
+   event, exactly like Jeremy and Levi), then Jeremy towels it and does the
+   interior, and Levi reads the ticket back. The ride out is distance/speed;
+   the two dwells are the page's only timers. */
+function laneRelease(){
+  const car = LANE.car; if (!car) return;
+  car.state = 'AIRDRY'; car.grime = 0; car.endedAt = Date.now();
+  car.targetX = STATIONS[3].cx;
+  WORLD.sparkleAt = CLOCK.now();
+  LANE.finished++; LANE.car = null;
+}
+function outroTimers(car){
+  if (car.__outro) return; car.__outro = true;
+  setTimeout(() => {
+    if (car.state === 'DRYING') car.state = 'BYE';
+    HUD.dirty = true;
+    setTimeout(() => {
+      if (car.state === 'BYE') car.state = 'LEAVING';
+      const nxt = LANE.queue.shift();
+      if (nxt && !LANE.car) laneAdmit(makeCarModel({ label: nxt.label }));
+      HUD.dirty = true;
+    }, C.BYE_T * 1000);
+  }, C.DRY_T * 1000);
+}
+
+
+/* ─── M07 · SVG KIT ─────────────────────────────────────────────────────── */
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, parent){
+  const n = document.createElementNS(NS, tag);
+  if (attrs) for (const k in attrs){ if (attrs[k] != null) n.setAttribute(k, attrs[k]); }
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function txt(parent, x, y, s, attrs){
+  const n = el('text', Object.assign({ x, y }, attrs || {}), parent);
+  n.textContent = s; return n;
+}
+const setA = (n, k, v) => { if (n.__c === undefined) n.__c = {}; if (n.__c[k] !== v){ n.__c[k] = v; n.setAttribute(k, v); } };
+
+/* ─── M08 · RIGS — a car, and a washer ──────────────────────────────────── */
+/* Local car space: 130 × 58, wheels on the ground line at y = 57. */
+const CABIN = {
+  sedan:'M36,25 L49,10 L86,10 L98,25 Z',
+  hatch:'M34,25 L46,10 L82,10 L92,25 Z',
+  suv:  'M31,25 L40,7  L93,7  L103,25 Z',
+  van:  'M27,25 L29,5  L101,5 L105,25 Z',
+  coupe:'M40,25 L54,12 L80,12 L94,25 Z',
+  wagon:'M33,25 L44,9  L95,9  L100,25 Z'
+};
+const GLASS = {
+  sedan:'M44,24 L54,14 L65,14 L65,24 Z M70,14 L82,14 L90,24 L70,24 Z',
+  hatch:'M42,24 L51,14 L63,14 L63,24 Z M68,14 L79,14 L86,24 L68,24 Z',
+  suv:  'M39,24 L46,11 L62,11 L62,24 Z M67,11 L88,11 L95,24 L67,24 Z',
+  van:  'M35,24 L36,10 L62,10 L62,24 Z M67,10 L96,10 L98,24 L67,24 Z',
+  coupe:'M47,24 L57,16 L68,16 L68,24 Z M73,16 L82,16 L88,24 L73,24 Z',
+  wagon:'M40,24 L49,13 L64,13 L64,24 Z M69,13 L90,13 L94,24 L69,24 Z'
+};
+function makeCar(model){
+  const g = el('g', { class:'car' });
+  el('ellipse', { cx:65, cy:57, rx:56, ry:5, fill:'#000', opacity:'.34' }, g);
+
+  const paint = el('g', {}, g);
+  el('rect', { x:4, y:24, width:122, height:23, rx:8, fill:model.paint }, paint);
+  el('path', { d: CABIN[model.kind] || CABIN.sedan, fill:model.paint }, paint);
+  if (model.kind === 'van' || model.kind === 'wagon')
+    el('rect', { x:24, y:22, width:82, height:5, fill:model.paint }, paint);
+  el('rect', { x:4, y:38, width:122, height:9, rx:4, fill:'#000', opacity:'.20' }, paint);
+
+  el('path', { d: GLASS[model.kind] || GLASS.sedan, fill:'#142b3f', opacity:'.92' }, paint);
+  el('rect', { x:118, y:29, width:9, height:6, rx:2.5, fill:'#fff6cf' }, paint);
+  el('rect', { x:4,   y:29, width:8, height:6, rx:2.5, fill:'#ff6a5c' }, paint);
+  el('rect', { x:4, y:24, width:122, height:3, rx:1.5, fill:'#fff', opacity:'.20' }, paint);
+
+  const wheels = [];
+  for (const wx of [30, 100]){
+    const w = el('g', { transform:'translate(' + wx + ',46)' }, g);
+    el('circle', { r:C.WHEEL_R, fill:'#0d1119' }, w);
+    el('circle', { r:5.6, fill:'#b9c8dc' }, w);
+    const spin = el('g', {}, w);
+    for (let k = 0; k < 4; k++)
+      el('rect', { x:-.9, y:-5.2, width:1.8, height:10.4, rx:.9, fill:'#7b8ba3',
+                   transform:'rotate(' + (k * 45) + ')' }, spin);
+    wheels.push(spin);
+  }
+
+  /* grime and shine are two overlays over the same silhouette */
+  const sil = 'M4,32 Q4,24 12,24 L126,24 Q126,24 126,32 L126,44 L4,44 Z';
+  const grime = el('g', { opacity: model.grime }, g);
+  el('rect', { x:4, y:24, width:122, height:23, rx:8, fill:'url(#pGrime)' }, grime);
+  el('path', { d: CABIN[model.kind] || CABIN.sedan, fill:'url(#pGrime)' }, grime);
+  el('rect', { x:4, y:41, width:122, height:6, rx:3, fill:'#3a2f1c', opacity:'.95' }, grime);
+  for (const wx of [30, 100])                       // wheel-arch splatter
+    el('ellipse', { cx:wx, cy:41, rx:12, ry:5, fill:'#33271b', opacity:'.8' }, grime);
+
+  const shine = el('g', { opacity:0, 'pointer-events':'none' }, g);
+  el('path', { d:'M22,26 L38,26 L20,44 L8,44 Z',   fill:'#fff', opacity:'.5' }, shine);
+  el('path', { d:'M96,26 L106,26 L92,44 L84,44 Z', fill:'#fff', opacity:'.32' }, shine);
+  el('path', { d: sil, fill:'none', stroke:'#fff', 'stroke-width':1.4, opacity:'.5' }, shine);
+
+  /* wash layers — decoration whose opacity moves ONLY while a matching stage
+     is genuinely live (or in the post-turn outro), never on idle time */
+  const wet = el('g', { opacity:0, 'pointer-events':'none' }, g);
+  el('rect', { x:4, y:24, width:122, height:23, rx:8, fill:'#bfe6ff', opacity:'.20' }, wet);
+  el('path', { d: CABIN[model.kind] || CABIN.sedan, fill:'#bfe6ff', opacity:'.14' }, wet);
+  for (const dx of [18, 52, 88, 112])
+    el('rect', { x:dx, y:40, width:1.6, height:8, rx:.8, fill:'#bfe6ff', opacity:'.55' }, wet);
+  const foamG = el('g', { opacity:0, 'pointer-events':'none' }, g);
+  for (const b of [[14,24,7],[30,19,9],[48,12,8],[66,10,9],[84,12,8],[102,19,9],
+                   [118,25,7],[58,25,10],[76,24,9],[40,26,8],[92,26,8]])
+    el('circle', { cx:b[0], cy:b[1], r:b[2], fill:'#f2f8ff', opacity:'.9' }, foamG);
+  const glassGlow = el('path', { d: GLASS[model.kind] || GLASS.sedan, fill:'#9fd8ff',
+                                 opacity:0, 'pointer-events':'none' }, g);
+  const gleam = el('g', { opacity:0, 'clip-path':'url(#clipCarBody-' + model.kind + ')',
+                          'pointer-events':'none' }, g);
+  const gleamBar = el('rect', { x:-30, y:4, width:16, height:46, fill:'#fff', opacity:'.55',
+                                transform:'skewX(-18)' }, gleam);
+
+  const plate = el('g', { opacity:0 }, g);
+  const pb = el('rect', { x:16, y:-16, width:98, height:15, rx:4, fill:'#0b1220',
+                          stroke:'#22314e' }, plate);
+  const pt = txt(plate, 65, -5.4, '', { fill:'#9fb0c8', 'font-size':8.5, 'text-anchor':'middle' });
+  return { g, wheels, grime, shine, wet, foamG, glassGlow, gleam, gleamBar,
+           plate, plateText: pt, plateBox: pb };
+}
+
+/* Washer: ~46 tall, standing on the ground line, facing the car (right). */
+function makeWasher(crew){
+  const g = el('g', { class:'washer' });
+  el('ellipse', { cx:0, cy:0, rx:11, ry:3.4, fill:'#000', opacity:'.34' }, g);
+  const body = el('g', { transform:'translate(0,-46)' }, g);
+  el('rect', { x:-6, y:26, width:5, height:20, rx:2.2, fill:'#1d2740' }, body);
+  el('rect', { x:1,  y:26, width:5, height:20, rx:2.2, fill:'#243050' }, body);
+  el('rect', { x:-8, y:12, width:16, height:17, rx:5, fill:crew.suit }, body);
+  el('rect', { x:-8, y:12, width:16, height:5, rx:2.5, fill:'#fff', opacity:'.18' }, body);
+  const arm = el('g', { transform:'translate(6,17)' }, body);
+  el('rect', { x:0, y:-2.4, width:15, height:4.8, rx:2.4, fill:crew.suit }, arm);
+  el('circle', { cx:16, cy:0, r:3, fill:'#e9eff9' }, arm);
+  const wand = el('g', { transform:'translate(16,0)' }, arm);
+  el('rect', { x:0, y:-1.3, width:15, height:2.6, rx:1.3, fill:'#a8bad2' }, wand);
+  el('path', { d:'M15,-3.4 L21,-1.4 L21,1.4 L15,3.4 Z', fill:'#6f8099' }, wand);
+  el('circle', { cx:0, cy:5, r:7.2, fill:'#f0d2b4' }, body);
+  el('path', { d:'M-7.6,3 A7.6,7.6 0 0 1 7.6,3 L7.6,4.4 L-7.6,4.4 Z', fill:crew.cap }, body);
+  el('rect', { x:5, y:2.6, width:6, height:2, rx:1, fill:crew.cap }, body);
+  el('circle', { cx:2.6, cy:5.4, r:1.05, fill:'#1b2333' }, body);
+  el('circle', { cx:6.0, cy:5.4, r:1.05, fill:'#1b2333' }, body);
+  return { g, body, arm, wand };
+}
+
+/* ─── M09 · PARTICLES — pooled; count is bounded regardless of load ─────── */
+const P = {
+  layer:null, pool:[], head:0,
+  init(layer){
+    this.layer = layer;
+    for (let i = 0; i < C.POOL; i++){
+      const n = el('circle', { r:2, fill:'#fff', opacity:0 }, layer);
+      this.pool.push({ n, life:0, max:1, x:0, y:0, vx:0, vy:0, r:2, kind:'mist' });
+    }
+  },
+  spawn(x, y, kind){
+    if (REDUCED.matches) return;
+    const p = this.pool[this.head]; this.head = (this.head + 1) % this.pool.length;
+    p.x = x; p.y = y; p.kind = kind; p.life = 0;
+    if (kind === 'mist'){  p.vx = rnd(-26,26);  p.vy = rnd(24,64);   p.max = rnd(.5,.9);  p.r = rnd(1.1,2.2); }
+    if (kind === 'foam'){  p.vx = rnd(-16,16);  p.vy = rnd(-40,-12); p.max = rnd(.9,1.5); p.r = rnd(2.4,5.4); }
+    if (kind === 'air'){   p.vx = rnd(70,190);  p.vy = rnd(-16,16);  p.max = rnd(.4,.7);  p.r = rnd(1.0,2.0); }
+    if (kind === 'spark'){ p.vx = rnd(-58,58);  p.vy = rnd(-96,-26); p.max = rnd(.7,1.2); p.r = rnd(1.4,3.0); }
+    if (kind === 'pour'){  p.vx = rnd(-8,8);    p.vy = rnd(260,400); p.max = rnd(.25,.45);p.r = rnd(1.4,2.4); }
+    if (kind === 'fleck'){ p.vx = rnd(-150,150);p.vy = rnd(-140,-30);p.max = rnd(.35,.6); p.r = rnd(1.2,2.4); }
+    setA(p.n, 'r', p.r.toFixed(2));
+    setA(p.n, 'fill', kind === 'foam' ? '#f2f8ff' : kind === 'spark' ? '#ffe9a8'
+                    : kind === 'air'  ? '#cfe3ff' : kind === 'fleck' ? '#dfe9f5' : '#4fb2ff');
+  },
+  step(dt){
+    for (const p of this.pool){
+      if (p.life >= p.max){ if (p.n.__c && p.n.__c.opacity !== '0') setA(p.n, 'opacity', '0'); continue; }
+      p.life += dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.kind !== 'foam' && p.kind !== 'air') p.vy += 190 * dt;
+      if (p.kind === 'foam') p.vx *= (1 - 1.4 * dt);
+      const k = 1 - p.life / p.max;
+      setA(p.n, 'cx', p.x.toFixed(1)); setA(p.n, 'cy', p.y.toFixed(1));
+      setA(p.n, 'opacity', (k * (p.kind === 'foam' ? .85 : .7)).toFixed(2));
+    }
+  }
+};
+
+/* ─── M10 · SCENE — drawn once, then only mutated ───────────────────────── */
+const SCENE = {
+  svg:null, defs:null, layers:{}, stationRigs:[], zoneRigs:[], bayRigs:[], addonRigs:{},
+  marquee:null,
+  build(){
+    const s = this.svg = document.getElementById('scene');
+    while (s.firstChild) s.removeChild(s.firstChild);
+    this.defs = el('defs', {}, s);
+    this.gradients();
+
+    const root = el('g', { 'clip-path':'url(#clipStage)' }, s);
+    this.layers.bg      = el('g', {}, root);
+    this.layers.tunnel  = el('g', {}, root);
+    this.layers.laneCar = el('g', {}, root);
+    this.layers.jets    = el('g', {}, root);
+    this.layers.crew    = el('g', {}, root);
+    this.layers.bays    = el('g', {}, root);
+    this.layers.parts   = el('g', {}, root);
+    this.layers.fx      = el('g', {}, root);
+
+    this.drawSky();
+    this.drawMarquee();
+    this.drawTunnel();
+    this.drawBays();
+    this.drawBoard();
+    this.drawThought();
+    P.init(this.layers.parts);
+  },
+
+  /* Thinking is the complement of "a call is in flight" inside an open turn.
+     Claude is reasoning, or writing its reply — the stream cannot tell those
+     apart, so the bubble says "thinking", never what about. */
+  drawThought(){
+    const g = el('g', { opacity:0 }, this.layers.fx);
+    el('rect', { x:-56, y:-38, width:112, height:38, rx:17, fill:'#0d1626',
+                 stroke:'#2b3b57' }, g);
+    el('circle', { cx:-38, cy:8, r:5, fill:'#0d1626', stroke:'#2b3b57' }, g);
+    el('circle', { cx:-48, cy:17, r:3, fill:'#0d1626', stroke:'#2b3b57' }, g);
+    const dots = [];
+    for (let k = 0; k < 3; k++)
+      dots.push(el('circle', { cx:-16 + k * 16, cy:-25, r:3.4, fill:'#7c8ca8' }, g));
+    const cap = txt(g, 0, -8, '', { fill:'#4b5a75', 'font-size':8.5, 'text-anchor':'middle' });
+    this.thought = { g, dots, cap };
+  },
+
+  gradients(){
+    const sky = el('linearGradient', { id:'gSky', x1:0, y1:0, x2:0, y2:1 }, this.defs);
+    el('stop', { offset:'0%',   'stop-color':'#16294d' }, sky);
+    el('stop', { offset:'100%', 'stop-color':'#070c16' }, sky);
+
+    const floor = el('linearGradient', { id:'gFloor', x1:0, y1:0, x2:0, y2:1 }, this.defs);
+    el('stop', { offset:'0%',   'stop-color':'#1b2740' }, floor);
+    el('stop', { offset:'100%', 'stop-color':'#0a1120' }, floor);
+
+    const glow = el('radialGradient', { id:'gGlow' }, this.defs);
+    el('stop', { offset:'0%',   'stop-color':'#3fd8ff', 'stop-opacity':'.55' }, glow);
+    el('stop', { offset:'100%', 'stop-color':'#3fd8ff', 'stop-opacity':'0' }, glow);
+
+    const neon = el('filter', { id:'fNeon', x:'-40%', y:'-80%', width:'180%', height:'320%' }, this.defs);
+    el('feGaussianBlur', { stdDeviation:5, result:'b' }, neon);
+    const mg = el('feMerge', {}, neon);
+    el('feMergeNode', { in:'b' }, mg); el('feMergeNode', { in:'SourceGraphic' }, mg);
+
+    const soft = el('filter', { id:'fSoft', x:'-50%', y:'-50%', width:'200%', height:'200%' }, this.defs);
+    el('feGaussianBlur', { stdDeviation:9 }, soft);
+
+    /* grime: mottled mud with drip streaks — deliberately unattractive */
+    const pat = el('pattern', { id:'pGrime', width:16, height:16, patternUnits:'userSpaceOnUse' }, this.defs);
+    el('rect', { width:16, height:16, fill:'#4a3c28' }, pat);
+    for (const c of [[3,4,3.0],[11,9,3.6],[7,2,1.9],[14,3,1.5],[2,12,2.4],[10,14,1.7],[6,8,1.4]])
+      el('circle', { cx:c[0], cy:c[1], r:c[2], fill:'#2b2114', opacity:'.85' }, pat);
+    for (const d of [[1,0,1.6,9],[8,4,1.2,11],[13,0,1.4,7]])
+      el('rect', { x:d[0], y:d[1], width:d[2], height:d[3], rx:.7, fill:'#332716',
+                   opacity:'.7' }, pat);
+
+    /* one clip PER BODY KIND, in local car space — the gleam sweep must hug
+       this car's silhouette, not the tallest cabin in the fleet */
+    for (const kind of KINDS){
+      const ccb = el('clipPath', { id:'clipCarBody-' + kind }, this.defs);
+      el('rect', { x:4, y:24, width:122, height:23, rx:8 }, ccb);
+      el('path', { d: CABIN[kind] }, ccb);
+    }
+    /* and one hard clip of the whole stage, so departing cars never render
+       across the letterbox margin outside the viewBox */
+    const cst = el('clipPath', { id:'clipStage' }, this.defs);
+    el('rect', { x:0, y:0, width:C.VB_W, height:C.VB_H }, cst);
+  },
+
+  drawSky(){
+    const g = this.layers.bg;
+    el('rect', { x:0, y:0, width:C.VB_W, height:C.VB_H, fill:'url(#gSky)' }, g);
+    for (let i = 0; i < 70; i++)
+      el('circle', { cx:rnd(0,C.VB_W), cy:rnd(0,300), r:rnd(.4,1.3), fill:'#cfe0ff',
+                     opacity:rnd(.10,.5).toFixed(2) }, g);
+    /* forecourt */
+    el('rect', { x:0, y:C.LANE_Y, width:C.VB_W, height:C.VB_H - C.LANE_Y, fill:'url(#gFloor)' }, g);
+    el('rect', { x:0, y:C.LANE_Y, width:C.VB_W, height:2.5, fill:'#3c4d6d' }, g);
+    for (let x = 0; x < C.VB_W; x += 46)
+      el('rect', { x, y:C.LANE_Y + 22, width:24, height:2.4, rx:1.2, fill:'#28374f' }, g);
+  },
+
+  drawMarquee(){
+    const g = el('g', {}, this.layers.bg);
+    el('rect', { x:632, y:14, width:496, height:62, rx:12, fill:'#0a1120',
+                 stroke:'#1e2c48', 'stroke-width':1.5 }, g);
+    const t = txt(g, 880, 47, 'OPTSPOT  AI', {
+      fill:'#3fd8ff', 'font-size':30, 'font-weight':800, 'letter-spacing':8,
+      'text-anchor':'middle', 'dominant-baseline':'middle', filter:'url(#fNeon)',
+      class:'sans' });
+    this.marquee = t;
+    txt(g, 880, 68, 'AI CAR WASH  ·  AGENTS ON DUTY  ·  NO TASK TOO DIRTY', {
+      fill:'#ff53d4', 'font-size':9, 'letter-spacing':3.4, 'text-anchor':'middle',
+      opacity:.75 });
+    for (const bx of [644, 1116])
+      el('circle', { cx:bx, cy:45, r:5, fill:'#ffc23a', filter:'url(#fNeon)', opacity:.9 }, g);
+  },
+
+  /* Equipment per station. Each one is a different silhouette on purpose: at a
+     glance the shape, not the label, should tell you which step is running. */
+  gearFor(kind, st, gear){
+    const cx = st.cx, fx = [];
+    const tagFx = (n, o) => { n.__fxo = o; fx.push(n); return n; };
+    if (kind === 'pipes'){                                  // stage 1 · WATER POUR
+      // overhead supply pipe, four nozzles; the streams exist only while live
+      el('rect', { x:st.x0 + 26, y:136, width:C.STATION_W - 52, height:10, rx:5, fill:'#33465f' }, gear);
+      el('rect', { x:st.x0 + 26, y:130, width:16, height:8, rx:3, fill:'#4a5b78' }, gear);
+      st.nozzles = [];
+      for (const dx of [-80, -27, 27, 80]){
+        el('path', { d:`M${cx+dx-7},146 L${cx+dx+7},146 L${cx+dx+4},158 L${cx+dx-4},158 Z`, fill:'#7d8fa8' }, gear);
+        tagFx(el('rect', { x:cx + dx - 3.2, y:158, width:6.4, height:196, rx:3,
+                           fill:'#4fb2ff', opacity:0 }, gear), '.6');
+        st.nozzles.push(cx + dx);
+      }
+      tagFx(el('ellipse', { cx, cy:C.LANE_Y - 3, rx:98, ry:7, fill:'#4fb2ff', opacity:0 }, gear), '.4');
+    } else if (kind === 'cannon'){                          // stage 2 · SOAP & FOAM
+      const cols = ['#ff7ad9', '#7ad9ff', '#f2f8ff'];
+      cols.forEach((c, k) => {
+        const dx = -66 + k * 66;
+        el('rect', { x:cx + dx - 9, y:132, width:18, height:32, rx:4, fill:'#33465f' }, gear);
+        el('rect', { x:cx + dx - 9, y:132, width:18, height:8, rx:4, fill:c, opacity:.9 }, gear);
+        el('path', { d:`M${cx+dx-5},164 L${cx+dx+5},164 L${cx+dx+3},176 L${cx+dx-3},176 Z`, fill:'#7d8fa8' }, gear);
+        tagFx(el('path', { d:`M${cx+dx-4},176 L${cx+dx+4},176 L${cx+dx+32},332 L${cx+dx-32},332 Z`,
+                           fill:c, opacity:0 }, gear), '.26');
+      });
+    } else if (kind === 'rollers'){                         // stage 3 · ROLLERS
+      // two side brushes + a top roller riding just above the roof line
+      st.brushes = [];
+      [cx - 86, cx + 86].forEach((bx, k) => {
+        const clipId = 'clipBr' + st.i + k;
+        el('rect', { x:bx - 20, y:170, width:40, height:190, rx:20 },
+           el('clipPath', { id:clipId }, this.defs));
+        el('rect', { x:bx - 20, y:170, width:40, height:190, rx:20, fill:'#22314e' }, gear);
+        const stripes = el('g', { 'clip-path':'url(#' + clipId + ')' }, gear);
+        for (let q = 0; q < 10; q++)
+          el('rect', { x:bx - 20, y:148 + q * 22, width:40, height:9, rx:4.5,
+                       fill:'#8fb7d9', opacity:.5 }, stripes);
+        el('rect', { x:bx - 3, y:140, width:6, height:34, fill:'#4a5b78' }, gear);
+        st.brushes.push({ stripes });
+      });
+      const topId = 'clipTop' + st.i;
+      el('rect', { x:cx - 58, y:300, width:116, height:44, rx:22 },
+         el('clipPath', { id:topId }, this.defs));
+      const top = el('g', {}, gear);
+      for (const dx of [-44, 44])
+        el('rect', { x:cx + dx - 3, y:120, width:6, height:184, fill:'#4a5b78' }, top);
+      el('rect', { x:cx - 58, y:300, width:116, height:44, rx:22, fill:'#22314e' }, top);
+      const tstripes = el('g', { 'clip-path':'url(#' + topId + ')' }, top);
+      for (let q = 0; q < 8; q++)
+        el('rect', { x:cx - 62 + q * 18, y:300, width:8, height:44, rx:4,
+                     fill:'#8fb7d9', opacity:.5 }, tstripes);
+      st.topRoller = { g: top, stripes: tstripes };
+    } else {                                                // stage 4 · AIR DRY
+      for (const dx of [-72, -6, 60]){
+        el('rect', { x:cx + dx - 16, y:134, width:56, height:26, rx:7, fill:'#33465f' }, gear);
+        el('path', { d:`M${cx+dx-6},160 L${cx+dx+10},160 L${cx+dx+16},178 L${cx+dx-12},178 Z`, fill:'#4a5b78' }, gear);
+      }
+      st.streaks = [];
+      for (let k = 0; k < 6; k++)
+        st.streaks.push(tagFx(el('rect', { x:st.x0 + 18, y:238 + k * 24, width:64, height:3,
+                                           rx:1.5, fill:'#cfe3ff', opacity:0 }, gear), '.35'));
+    }
+    st.fx = fx;
+  },
+
+  /* A staffed zone either side of the tunnel: check-in, towel & interior,
+     goodbye. Each has one member of staff who lights up when their phase is
+     the live one. */
+  drawZone(z){
+    const g = this.layers.tunnel, H0 = 120, H1 = C.LANE_Y;
+    const zg = el('g', {}, g);
+    const pool = el('ellipse', { cx:z.cx, cy:C.LANE_Y + 6, rx:(z.x1 - z.x0) / 2 - 6, ry:17,
+                                 fill:'url(#gGlow)', opacity:0 }, zg);
+    el('rect', { x:z.x0, y:H0, width:z.x1 - z.x0, height:H1 - H0, rx:8,
+                 fill:'#0b1220', opacity:.5, stroke:'#16213a' }, zg);
+    const lamp = el('rect', { x:z.cx - 40, y:126, width:80, height:7, rx:3.5, fill:'#241e19' }, zg);
+    const halo = el('ellipse', { cx:z.cx, cy:133, rx:58, ry:13, fill:'#ffc23a',
+                                 opacity:0, filter:'url(#fSoft)' }, zg);
+
+    const person = STAFF[z.staff];
+    if (z.id === 'CHECKIN'){                      // welcome podium + ticket machine
+      el('rect', { x:z.cx - 98, y:250, width:36, height:56, rx:4, fill:'#33465f' }, zg);
+      el('rect', { x:z.cx - 93, y:258, width:26, height:16, rx:2, fill:'#0d1626' }, zg);
+      el('rect', { x:z.cx - 93, y:282, width:26, height:4, rx:2, fill:'#4a5b78' }, zg);
+    } else if (z.id === 'DRY'){                   // towel rack + a vacuum for the interior
+      el('rect', { x:z.cx - 96, y:150, width:56, height:8, rx:4, fill:'#33465f' }, zg);
+      for (const dx of [-92, -74, -56])
+        el('rect', { x:z.cx + dx, y:158, width:14, height:26, rx:3, fill:'#e9eff9', opacity:.8 }, zg);
+      el('rect', { x:z.cx + 60, y:250, width:30, height:56, rx:6, fill:'#33465f' }, zg);
+      el('rect', { x:z.cx + 65, y:258, width:20, height:12, rx:2, fill:'#0d1626' }, zg);
+      const dfx = el('g', { opacity:0 }, this.layers.fx);
+      const hose = el('path', { d:'M0,0', fill:'none', stroke:'#4a5b78', 'stroke-width':5,
+                                'stroke-linecap':'round' }, dfx);
+      const towel = el('g', {}, dfx);
+      el('rect', { x:-17, y:-8, width:34, height:16, rx:6, fill:'#f2f8ff' }, towel);
+      el('rect', { x:-17, y:-2, width:34, height:2.4, fill:'#c9d8ee' }, towel);
+      this.dryFx = { g:dfx, hose, towel };
+    } else {                                      // goodbye: a sign and a ticket stub
+      el('rect', { x:z.cx - 30, y:238, width:60, height:40, rx:5, fill:'#0d1626',
+                   stroke:'#22314e' }, zg);
+      txt(zg, z.cx, 262, 'THANKS', { fill:'#ff53d4', 'font-size':10, 'letter-spacing':1.4,
+            'text-anchor':'middle', opacity:.9 });
+      el('rect', { x:z.cx - 2, y:278, width:4, height:28, fill:'#33465f' }, zg);
+    }
+
+    /* the member of staff, always present — this is their post */
+    const wr = makeWasher(person);
+    wr.g.setAttribute('transform', 'translate(' + (z.cx - 88) + ',' + C.LANE_Y + ')');
+    const holder = el('g', { opacity:.45 }, this.layers.crew);
+    holder.appendChild(wr.g);
+
+    el('rect', { x:z.x0 + 4, y:C.LANE_Y + 22, width:(z.x1 - z.x0) - 8, height:36, rx:5,
+                 fill:'#0b1220', stroke:'#1e2c48' }, zg);
+    const nm = txt(zg, z.cx, C.LANE_Y + 37, z.n, { fill:'#c6d4e8', 'font-size':9,
+          'letter-spacing':.7, 'text-anchor':'middle', 'font-weight':700 });
+    const who = txt(zg, z.cx, C.LANE_Y + 50, person.name + ' · ' + z.sub, { fill:'#334463',
+          'font-size':8.5, 'text-anchor':'middle' });
+    this.zoneRigs.push({ z, person, lamp, halo, pool, nm, who, holder, wash:wr, live:false });
+  },
+
+  drawTunnel(){
+    const g = this.layers.tunnel;
+    const H0 = 120, H1 = C.LANE_Y;                     // tunnel interior top / floor
+
+    this.drawZone(ZONES.CHECKIN);
+    txt(g, 40, 108, 'QUEUE', { fill:'#4b5a75', 'font-size':10, 'letter-spacing':2.6 });
+    this.queueText = txt(g, 96, 108, '', { fill:'#4b5a75', 'font-size':10 });
+
+    /* roof beam */
+    el('rect', { x:C.TUNNEL_X0 - 14, y:96, width:(C.TUNNEL_X1 - C.TUNNEL_X0) + 28, height:24,
+                 rx:6, fill:'#152036', stroke:'#22314e' }, g);
+    el('rect', { x:C.TUNNEL_X0 - 14, y:116, width:(C.TUNNEL_X1 - C.TUNNEL_X0) + 28, height:3,
+                 fill:'#3fd8ff', opacity:.30 }, g);
+    this.tunnelBanner = txt(g, (C.TUNNEL_X0 + C.TUNNEL_X1) / 2, 111,
+          'THE TUNNEL — Nick', { fill:'#3fd8ff', 'font-size':10, 'letter-spacing':2.4,
+          'text-anchor':'middle', opacity:.55, 'font-weight':700 });
+
+    STATIONS.forEach(st => {
+      const bay = el('g', {}, g);
+      const pool = el('ellipse', { cx:st.cx, cy:C.LANE_Y + 6, rx:104, ry:18,
+                                   fill:'url(#gGlow)', opacity:0 }, bay);
+      el('rect', { x:st.x0, y:H0, width:C.STATION_W, height:H1 - H0, fill:'#0b1220', opacity:.55 }, bay);
+      el('rect', { x:st.x0, y:H0, width:1.6, height:H1 - H0, fill:'#1e2c48' }, bay);
+
+      /* overhead rig — the lamp analogue, and the truth channel */
+      const lamp = el('rect', { x:st.cx - 72, y:126, width:144, height:7, rx:3.5, fill:'#241e19' }, bay);
+      const halo = el('ellipse', { cx:st.cx, cy:133, rx:92, ry:14, fill:'#ffc23a',
+                                   opacity:0, filter:'url(#fSoft)' }, bay);
+
+      const gear = el('g', {}, bay);
+      this.gearFor(st.gear, st, gear);
+
+      /* Helper slot: a washer appears here only while THIS step is running.
+         It lives in the crew layer, not the station group — the helper working
+         the step the car is parked at must stand in FRONT of the car, or the
+         one member of the crew you most want to see is the one hidden. */
+      const helper = el('g', { opacity:0 }, this.layers.crew);
+      const wr = makeWasher(crewById[LEAD]);
+      wr.g.setAttribute('transform', 'translate(' + (st.cx - 96) + ',' + C.LANE_Y + ')');
+      helper.appendChild(wr.g);
+
+      /* label plate */
+      el('rect', { x:st.x0 + 4, y:C.LANE_Y + 22, width:C.STATION_W - 8, height:36, rx:5,
+                   fill:'#0b1220', stroke:'#1e2c48' }, bay);
+      const nm = txt(bay, st.cx, C.LANE_Y + 37, st.n, { fill:'#c6d4e8', 'font-size':9,
+            'letter-spacing':.7, 'text-anchor':'middle', 'font-weight':700 });
+      const stat = txt(bay, st.cx, C.LANE_Y + 50, '—', { fill:'#334463', 'font-size':8.5,
+            'text-anchor':'middle' });
+      const num = txt(bay, st.x0 + 8, 146, String(st.i + 1), { fill:'#22314e', 'font-size':22,
+            'font-weight':800 });
+
+      this.stationRigs.push({ st, lamp, halo, pool, nm, stat, num, helper, wash:wr,
+                              live:false });
+    });
+
+    el('rect', { x:C.TUNNEL_X1 + 8, y:H0 - 2, width:6, height:H1 - H0 + 2, fill:'#22314e' }, g);
+    this.drawZone(ZONES.DRY);
+    this.drawZone(ZONES.BYE);
+
+  },
+
+  drawBays(){
+    const g = this.layers.bays;
+    txt(g, 40, 508, 'DETAIL BAYS — one per subagent, washing its own task', { fill:'#4b5a75', 'font-size':11,
+          'letter-spacing':2.2 });
+    BAYS.forEach(b => {
+      const bg = el('g', {}, g);
+      el('rect', { x:b.x, y:b.y, width:b.w, height:b.h, rx:9, fill:'#0a1120',
+                   stroke:'#1a2640', 'stroke-width':1.5 }, bg);
+      const pool = el('ellipse', { cx:b.cx, cy:b.ground + 4, rx:74, ry:15,
+                                   fill:'url(#gGlow)', opacity:0 }, bg);
+      el('rect', { x:b.x, y:b.ground, width:b.w, height:2, fill:'#2b3b57' }, bg);
+      const lamp = el('rect', { x:b.cx - 34, y:b.y + 12, width:68, height:6, rx:3, fill:'#241e19' }, bg);
+      const halo = el('ellipse', { cx:b.cx, cy:b.y + 18, rx:56, ry:12, fill:'#ffc23a',
+                                   opacity:0, filter:'url(#fSoft)' }, bg);
+      const idle = txt(bg, b.cx, b.y + 108, 'empty', { fill:'#22314e', 'font-size':12,
+            'text-anchor':'middle', 'letter-spacing':2 });
+      const who  = txt(bg, b.cx, b.y + 44, '', { fill:'#8fa2bd', 'font-size':11, 'text-anchor':'middle',
+            'font-weight':700 });
+      const what = txt(bg, b.cx, b.y + 60, '', { fill:'#4b5a75', 'font-size':9.5, 'text-anchor':'middle' });
+      /* which of the four stages this subagent is on right now — the same
+         vocabulary as the tunnel, so a bay is readable without a legend */
+      const stepBox = el('rect', { x:b.cx - 62, y:b.h + b.y - 34, width:124, height:20, rx:5,
+                                   fill:'#0d1626', stroke:'#1a2640', opacity:0 }, bg);
+      const step = txt(bg, b.cx, b.y + b.h - 20, '', { fill:'#8fa2bd', 'font-size':9,
+            'letter-spacing':.6, 'text-anchor':'middle', 'font-weight':700 });
+      const car  = el('g', {}, bg);
+      const crew = el('g', {}, bg);
+      this.bayRigs.push({ b, lamp, halo, pool, idle, who, what, step, stepBox,
+                          car, crew, rig:null, wash:null });
+    });
+  },
+
+  drawBoard(){
+    const g = el('g', {}, this.layers.bays);
+    el('rect', { x:40, y:764, width:470, height:206, rx:10, fill:'#0a1120', stroke:'#1a2640' }, g);
+    txt(g, 60, 792, 'ADD-ON SERVICES', { fill:'#7c8ca8', 'font-size':11, 'letter-spacing':2.6 });
+    txt(g, 60, 808, 'real tools that are not a wash step — they light up', {
+          fill:'#3a4760', 'font-size':9 });
+    txt(g, 60, 820, 'instead of moving the car', { fill:'#3a4760', 'font-size':9 });
+    ADDONS.forEach((a, i) => {
+      const y = 838 + i * 38, x = 60;
+      const dot = el('circle', { cx:x + 7, cy:y + 9, r:5.5, fill:'#1b2740' }, g);
+      const lab = txt(g, x + 22, y + 13, a.n, { fill:'#4b5a75', 'font-size':10.5,
+            'letter-spacing':1.3 });
+      const cnt = txt(g, x + 420, y + 13, '', { fill:'#22314e', 'font-size':10, 'text-anchor':'end',
+            'font-variant-numeric':'tabular-nums' });
+      this.addonRigs[a.id] = { dot, lab, cnt, n:0, lastAt:-9 };
+    });
+
+    /* ticket board */
+    const t = el('g', {}, this.layers.bays);
+    el('rect', { x:530, y:764, width:1030, height:206, rx:10, fill:'#0a1120', stroke:'#1a2640' }, t);
+    txt(t, 552, 792, 'TICKET', { fill:'#7c8ca8', 'font-size':11, 'letter-spacing':2.6 });
+    this.ticket = {
+      l1: txt(t, 552, 836, '—', { fill:'#c6d4e8', 'font-size':22, 'font-weight':700 }),
+      l2: txt(t, 552, 866, '', { fill:'#7c8ca8', 'font-size':11.5 }),
+      l3: txt(t, 552, 892, '', { fill:'#4b5a75', 'font-size':10.5 }),
+      l4: txt(t, 552, 918, '', { fill:'#3a4760', 'font-size':10 })
+    };
+  },
+
+  mountLaneCar(car){
+    const r = makeCar(car);
+    car.rig = r;
+    this.layers.laneCar.appendChild(r.g);
+  },
+  unmountLaneCar(car){
+    if (car.rig && car.rig.g.parentNode) car.rig.g.parentNode.removeChild(car.rig.g);
+    car.rig = null;
+  }
+};
+
+/* ─── M11 · FEED — real Claude Code activity drives the wash ────────────── */
+/* This is the module the invariant lives in. Read the header comment before
+   changing anything here. */
+const FEED = {
+  live:false, connected:false, demo:false, es:null, q:[], dropped:0, lastSeq:0,
+  actors:{},              // actorId -> { crew, kind, label, tools:{}, liveN, bay }
+  main:null,              // actorId of the main session, once seen
+  connect(cfg){
+    this.live = true;
+    const open = () => {
+      this.es = new EventSource(cfg.stream);
+      this.es.onopen    = () => { this.connected = true;  HUD.dirty = true; };
+      this.es.onerror   = () => { this.connected = false; HUD.dirty = true; };
+      this.es.onmessage = m => { try { this.q.push(JSON.parse(m.data)); } catch (e){} };
+    };
+    open();
+  },
+  /* Applied from the sim loop, never inside the transport callback. */
+  drain(){
+    if (!this.q.length) return;
+    // The budget exists to keep frames smooth. A hidden tab has no frames to
+    // keep smooth, so it drains in full rather than falling steadily behind.
+    let budget = document.hidden ? Infinity : C.FEED_BUDGET;
+    while (this.q.length){
+      const e = this.q[0];
+      const terminal = e.t === 'tool.finished' || e.t === 'tool.failed' || e.t === 'actor.stopped';
+      if (!terminal && budget-- <= 0) break;    // terminals bypass the budget or jets lag
+      this.q.shift(); this.lastSeq = e.seq;
+      try { this.apply(e); } catch (err){ this.dropped++; }
+    }
+    if (this.q.length > C.FEED_Q_MAX){
+      this.dropped += this.q.length - C.FEED_Q_MAX; this.q.length = C.FEED_Q_MAX;
+    }
+  },
+
+  claim(actorId, kind, type, label){
+    let rec = this.actors[actorId];
+    if (rec) return rec;
+    const isMain = actorId === 'main' || kind === 'main';
+    rec = { id:actorId, kind: isMain ? 'main' : 'subagent',
+            crew: isMain ? crewById[LEAD] : crewFor(type, label),
+            type: type || '', label: label || type || actorId.slice(0, 8),
+            tools:{}, liveN:0, bay:null };
+    this.actors[actorId] = rec;
+    if (isMain){ this.main = actorId; }
+    else { this.openBay(rec); }
+    HUD.dirty = true;
+    return rec;
+  },
+
+  /* A subagent takes a stall, and its delegated task is the car in that stall. */
+  openBay(rec){
+    const now = CLOCK.now();
+    let b = BAYS.find(x => !x.actorId && now >= x.freeAt) || BAYS.find(x => !x.actorId);
+    if (!b){                            // over capacity: evict the oldest finished stall
+      b = BAYS.slice().sort((p,q) => p.freeAt - q.freeAt)[0];
+      const prev = b.actorId && this.actors[b.actorId];
+      if (prev) prev.bay = null;
+      b.actorId = null;
+    }
+    b.actorId = rec.id; rec.bay = b.i;
+    const rig = SCENE.bayRigs[b.i];
+    const car = makeCarModel({ x:b.cx, label:rec.label, state:'IN_WASH' });
+    car.bay = b.i;
+    while (rig.car.firstChild)  rig.car.removeChild(rig.car.firstChild);
+    while (rig.crew.firstChild) rig.crew.removeChild(rig.crew.firstChild);
+    const cr = makeCar(car); rig.car.appendChild(cr.g); car.rig = cr;
+    const wr = makeWasher(rec.crew); rig.crew.appendChild(wr.g);
+    setA(cr.g, 'transform', 'translate(' + (b.cx - 65 * C.BAY_CAR_SCALE) + ',' +
+      (b.ground - 57 * C.BAY_CAR_SCALE) + ') scale(' + C.BAY_CAR_SCALE + ')');
+    setA(wr.g, 'transform', 'translate(' + (b.cx - 78) + ',' + b.ground + ')');
+    rig.rig = cr; rig.wash = wr; rig.carModel = car;
+    setA(rig.idle, 'opacity', '0');
+    rig.who.textContent  = rec.crew.name + ' · ' + (rec.type || 'agent');
+    rig.what.textContent = (rec.label || '').slice(0, 30);
+    HUD.dirty = true;
+  },
+  /* quiet=true is for resync: we merely LOST TRACK of the actor, which is
+     evidence of a reset, not of a task finished cleanly — so no clean car, no
+     shine, no celebration. Only a real terminal event earns those. */
+  closeBay(rec, quiet){
+    if (rec.bay == null) return;
+    const b = BAYS[rec.bay], rig = SCENE.bayRigs[rec.bay];
+    if (!quiet){
+      if (rig.carModel){ rig.carModel.grime = 0; rig.carModel.state = 'LEAVING'; }
+      if (rig.rig) setA(rig.rig.shine, 'opacity', '1');
+      for (let i = 0; i < 10; i++) P.spawn(b.cx + rnd(-52,52), b.ground - rnd(10,54), 'spark');
+    }
+    b.freeAt = CLOCK.now() + C.BAY_LINGER;
+    b.actorId = null; rec.bay = null;
+    setTimeout(() => {
+      if (b.actorId) return;                     // a new agent already took it
+      while (rig.car.firstChild)  rig.car.removeChild(rig.car.firstChild);
+      while (rig.crew.firstChild) rig.crew.removeChild(rig.crew.firstChild);
+      rig.rig = null; rig.wash = null; rig.carModel = null;
+      rig.who.textContent = ''; rig.what.textContent = '';
+      setA(rig.idle, 'opacity', '1');
+      HUD.dirty = true;
+    }, C.BAY_LINGER * 1000);
+  },
+
+  /* The main session's car. Created lazily so connecting mid-turn still shows
+     the truth: there IS a car in the wash, we just did not see it arrive. */
+  ensureLaneCar(unattended){
+    if (LANE.car) return LANE.car;
+    const car = makeCarModel({ x:ZONES.CHECKIN.cx, unattended:!!unattended });
+    laneAdmit(car);
+    if (unattended) car.state = 'IN_WASH';
+    HUD.dirty = true;
+    return car;
+  },
+
+  apply(e){
+    const id = e.a;
+    switch (e.t){
+      case 'wash.snapshot': {
+        if (e.d.resync){
+          for (const k in this.actors){ const r = this.actors[k]; if (r.bay != null) this.closeBay(r, true); }
+          this.actors = {}; this.main = null;
+        }
+        for (const s of e.d.actors || []){
+          const rec = this.claim(s.id, s.kind, s.agent_type, s.label);
+          for (const lt of s.live || []){ rec.tools[lt.id] = lt.tool; rec.liveN++; }
+          if (rec.kind === 'main' && rec.liveN > 0){
+            const car = this.ensureLaneCar(true);
+            for (const lt of s.live || []){
+              const si = stationFor(lt.tool);
+              if (si >= 0){ if (si > car.station) car.station = si; car.state = 'IN_WASH'; }
+            }
+          }
+        }
+        HUD.dirty = true; break;
+      }
+
+      case 'actor.spawned': this.claim(id, e.d.kind, e.d.agent_type, e.d.label); break;
+
+      case 'actor.updated': {
+        const rec = this.actors[id]; if (!rec) break;
+        rec.label = e.d.label;
+        if (rec.bay != null) SCENE.bayRigs[rec.bay].what.textContent = (e.d.label || '').slice(0, 30);
+        HUD.dirty = true; break;
+      }
+
+      case 'actor.stopped': {
+        const rec = this.actors[id]; if (!rec) break;
+        rec.liveN = 0; rec.tools = {};
+        if (rec.kind === 'subagent') this.closeBay(rec);
+        delete this.actors[id];
+        if (this.main === id){
+          this.main = null;
+          // actor.stopped IS a terminal event: without this, a lane car would
+          // sit claiming "Claude is thinking" forever after its actor is gone.
+          laneRelease();
+        }
+        HUD.dirty = true; break;
+      }
+
+      case 'tool.started': {
+        const rec = this.claim(id, id === 'main' ? 'main' : 'subagent', '', '');
+        if (e.d.spawns){                  // `Agent` has no PostToolUse; SubagentStop ends it
+          ADDONS_hit('crew'); ACT.open(id, e.d.id, e.d.tool, e.d.target, true);
+          break;
+        }
+        if (rec.tools[e.d.id]) break;     // duplicate would strand the jets
+        rec.tools[e.d.id] = e.d.tool;
+        rec.liveN++;
+
+        const si = stationFor(e.d.tool);
+        if (rec.kind === 'main'){
+          const car = this.ensureLaneCar(true);
+          if (si >= 0){
+            // A conveyor never reverses. The car holds its furthest evidenced
+            // stage; an earlier-family call is real work carried out AT the
+            // car by that stage's washer, and the ticket counts it.
+            if (si > car.station) car.station = si;
+            else if (si < car.station) car.touch++;
+            car.state = 'IN_WASH';
+          } else ADDONS_hit(addonFor(e.d.tool).id);
+        } else {
+          if (si < 0) ADDONS_hit(addonFor(e.d.tool).id);
+          else if (rec.bay != null) rec.step = si;
+        }
+        ACT.open(id, e.d.id, e.d.tool, e.d.target, false);
+        HUD.dirty = true; break;
+      }
+
+      case 'tool.finished': case 'tool.failed': {
+        const rec = this.actors[id]; if (!rec) break;
+        if (!rec.tools[e.d.id]) break;    // never saw it start
+        delete rec.tools[e.d.id];
+        rec.liveN = Math.max(0, rec.liveN - 1);
+        const ok = e.t === 'tool.finished';
+        const fin = stationFor(e.d.tool);
+        ACT.close(e.d.id, ok, e.d.ms);
+        if (ok){
+          // Per-step counters, from the harness's own durations. These are the
+          // only numbers on the tunnel, and every one of them is measured.
+          if (fin >= 0 && rec.kind === 'main'){ STATIONS[fin].passes++; STATIONS[fin].ms += (e.d.ms || 0); }
+          if (rec.kind === 'main' && LANE.car){ LANE.car.washed++; regrime(LANE.car); }
+          if (rec.kind === 'subagent' && rec.bay != null){
+            const cm = SCENE.bayRigs[rec.bay].carModel;
+            if (cm){ cm.washed++; regrime(cm); }
+          }
+        }
+        HUD.dirty = true; break;
+      }
+
+      case 'prompt.submitted': {
+        ACT.note('you', 'prompt', e.d.chars + ' chars');
+        if (LANE.car) LANE.queue.push({ label:'', at:Date.now() });
+        else laneAdmit(makeCarModel({}));
+        HUD.dirty = true; break;
+      }
+
+      case 'turn.ended':
+        ACT.note('claude', 'turn ended', '');
+        laneRelease();                    // the ONLY place a lane car becomes clean
+        HUD.dirty = true; break;
+
+      case 'session.started':
+        ACT.note('claude', 'session', e.d.cwd_name || ''); HUD.dirty = true; break;
+
+      case 'wash.closing':
+        ACT.note('claude', 'wash closing', ''); HUD.dirty = true; break;
+    }
+  }
+};
+function ADDONS_hit(id){
+  const r = SCENE.addonRigs[id]; if (!r) return;
+  r.n++; r.lastAt = CLOCK.now(); HUD.dirty = true;
+}
+
+/* ─── M12 · ACTIVITY LOG — rows are 1:1 with received events ────────────── */
+const ACT = {
+  rows:[], byTool:{},
+  open(actorId, toolUseId, tool, target, spawns){
+    const r = { id: toolUseId || ('t' + Math.random()), actorId, tool, target: target || '',
+                at: Date.now(), status: spawns ? 'note' : 'run', ms: 0 };
+    if (!spawns) this.byTool[r.id] = r;
+    this.rows.unshift(r);
+    if (this.rows.length > C.ROWS_MAX) this.rows.pop();
+    HUD.dirty = true;
+  },
+  close(toolUseId, ok, ms){
+    const r = this.byTool[toolUseId]; if (!r) return;
+    r.status = ok ? 'done' : 'err';
+    r.ms = ms || (Date.now() - r.at);
+    delete this.byTool[toolUseId];
+    HUD.dirty = true;
+  },
+  note(who, tool, target){
+    this.rows.unshift({ id:'n' + Math.random(), actorId:who, tool, target,
+                        at:Date.now(), status:'note', ms:0 });
+    if (this.rows.length > C.ROWS_MAX) this.rows.pop();
+    HUD.dirty = true;
+  }
+};
+
+/* ─── M13 · THE TRUTH CHANNEL ───────────────────────────────────────────── */
+/* INVARIANT: a station's jets run iff an unmatched tool.started exists for the
+   actor that owns it. This is the ONLY writer of jet/lamp state.
+
+   Refined for the granular tunnel: a station lights per IN-FLIGHT CALL, not
+   per car position. Claude frequently runs several tools at once, and each of
+   those calls is genuinely a different step being worked on the same car — so
+   several stations light together and a helper appears at each. That is the
+   crew, and every member of it is standing on evidence. The car itself sits at
+   the most recent step, which is a separate fact. */
+function syncTruth(){
+  const main = FEED.main ? FEED.actors[FEED.main] : null;
+  const car  = LANE.car;
+
+  /* Which phase owns the moment. Exactly one, and each from a real signal:
+     Josh has it while a turn is open and nothing has been touched yet; Nick
+     while a call is in flight; Jeremy and Levi only after turn.ended. */
+  const outro  = WORLD.cars.find(c => c.state === 'DRYING' || c.state === 'BYE');
+  const airing = WORLD.cars.find(c => c.state === 'AIRDRY');
+  const phase  = outro ? (outro.state === 'DRYING' ? 'DRY' : 'BYE')
+               : airing                            ? 'TUNNEL'     // the exit ride
+               : car && main && main.liveN > 0     ? 'TUNNEL'
+               : car && car.state === 'CHECKIN'    ? 'CHECKIN'    // not touched a tool yet
+               : car                               ? 'THINKING'   // mid-turn pause
+               :                                     'IDLE';
+  WORLD.phase = phase;
+
+  for (const r of SCENE.zoneRigs){
+    const on = phase === r.z.id;
+    r.live = on;
+    setA(r.lamp, 'fill', on ? '#ffc23a' : '#241e19');
+    setA(r.halo, 'opacity', on ? '.30' : '0');
+    setA(r.pool, 'opacity', on ? '.85' : '0');
+    setA(r.holder, 'opacity', on ? '1' : '.4');
+    setA(r.nm, 'fill', on ? '#eaf2ff' : '#5c6d88');
+    setA(r.who, 'fill', on ? '#3fd8ff' : '#334463');
+  }
+  setA(SCENE.tunnelBanner, 'opacity', phase === 'TUNNEL' ? '1' : '.45');
+
+  // how many in-flight calls of the main actor land on each station
+  const busyAt = new Array(STATIONS.length).fill(0);
+  if (main && car && car.state === 'IN_WASH'){
+    for (const id in main.tools){
+      const si = stationFor(main.tools[id]);
+      if (si >= 0) busyAt[si]++;
+    }
+  }
+
+  for (const r of SCENE.stationRigs){
+    const i3 = r.st.i === 3;
+    const on = i3 ? !!airing : busyAt[r.st.i] > 0;
+    r.live = on;
+    // Machinery is sensor-driven, like a real tunnel: the arch runs only with
+    // the car under it. A lit lamp with the car elsewhere means the touch-up
+    // crew has taken that stage's work to the car instead.
+    r.fxOn = i3 ? !!airing
+           : !!(on && car && car.state === 'IN_WASH' && car.station === r.st.i);
+    setA(r.lamp, 'fill', on ? '#ffc23a' : '#241e19');
+    setA(r.halo, 'opacity', on ? '.30' : '0');
+    setA(r.pool, 'opacity', on ? '.85' : '0');
+    setA(r.num,  'fill', on ? '#3fd8ff' : r.st.passes ? '#2e4166' : '#22314e');
+    setA(r.nm,   'fill', on ? '#eaf2ff' : r.st.passes ? '#8fa2bd' : '#5c6d88');
+    setA(r.helper, 'opacity', on ? '1' : '0');
+    // a step that has really been through shows its own count and total time
+    r.stat.textContent = r.st.passes
+      ? r.st.passes + '× · ' + (r.st.ms >= 1000 ? (r.st.ms / 1000).toFixed(1) + 's' : r.st.ms + 'ms')
+      : '—';
+    setA(r.stat, 'fill', on ? '#3fd8ff' : r.st.passes ? '#4b5a75' : '#334463');
+    // static gear fx (streams, cones, streaks, puddle) follow the car sensor
+    if (r.st.fx) for (const f of r.st.fx) setA(f, 'opacity', r.fxOn ? (f.__fxo || '.5') : '0');
+  }
+  for (const rig of SCENE.bayRigs){
+    const rec = rig.b.actorId ? FEED.actors[rig.b.actorId] : null;
+    const on  = !!(rec && rec.liveN > 0);
+    rig.live = on;
+    setA(rig.lamp, 'fill', on ? '#ffc23a' : '#241e19');
+    setA(rig.halo, 'opacity', on ? '.28' : '0');
+    setA(rig.pool, 'opacity', on ? '.8' : '0');
+    // the step this subagent last had real evidence for
+    const stp = rec && rec.step != null ? STATIONS[rec.step] : null;
+    setA(rig.stepBox, 'opacity', stp ? '1' : '0');
+    rig.step.textContent = stp ? (stp.i + 1) + ' · ' + stp.n : '';
+    setA(rig.step, 'fill', on ? '#3fd8ff' : '#5c6d88');
+  }
+}
+
+/* ─── M14 · ENGINE ──────────────────────────────────────────────────────── */
+const ENGINE = {
+  last:0, ready:false, frames:0, fps:0, fpsAt:0,
+  init(){
+    SCENE.build();
+    if (window.__CW_LIVE){ FEED.connect(window.__CW_LIVE); }
+    else { FEED.demo = true; DEMO.start(); }
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) this.last = performance.now();
+    });
+    this.ready = true; this.last = performance.now();
+    this._f = this.frame.bind(this);
+    // State runs on its own timer, NOT on rAF — see pump().
+    this.pumpTimer = setInterval(() => this.pump(), Math.round(1000 / C.HUD_HZ));
+    requestAnimationFrame(this._f);
+  },
+  /* State and animation are deliberately separated.
+     requestAnimationFrame is throttled to a dead stop in a hidden tab or a
+     backgrounded pane. A viewer that drained the feed only from rAF sits
+     frozen and empty while still displaying "live" — which is the one thing
+     this page must never do. So everything that is TRUE (draining the feed,
+     the jets, the HUD) runs on the pump, and only motion runs on the frame. */
+  pump(){
+    FEED.drain();
+    syncTruth();
+    // Where a car IS, is state; how it glides there is animation. With frames
+    // throttled there is no glide, so snap — a car parked under the wrong
+    // station would be a lie the eye reads before it reads the ticket.
+    if (document.hidden) this.paint(true, 0);
+    HUD.maybeRender();
+  },
+  targetFor(c){
+    // Two fast turns can put two cars in the same outro state; stagger them
+    // so neither hides the other.
+    let slot = 0;
+    for (const o of WORLD.cars){ if (o === c) break; if (o.state === c.state) slot++; }
+    const off = slot * -74;
+    return c.state === 'LEAVING' ? C.PARK_X
+         : c.state === 'BYE'      ? ZONES.BYE.cx + off
+         : c.state === 'DRYING'   ? ZONES.DRY.cx + off
+         : c.state === 'AIRDRY'   ? STATIONS[3].cx + off
+         : c.station >= 0         ? STATIONS[c.station].cx
+         :                          ZONES.CHECKIN.cx;
+  },
+  paint(snap, dt){
+    for (let i = WORLD.cars.length - 1; i >= 0; i--){
+      const c = WORLD.cars[i];
+      c.targetX = this.targetFor(c);
+      const d = c.targetX - c.x;
+      const moving = !snap && Math.abs(d) > C.ARRIVE_EPS;
+      if (snap) c.x = c.targetX;
+      else if (moving) c.x += Math.sign(d) * Math.min(Math.abs(d), C.ROLL_SPEED * dt);
+      if (c.rig){
+        const s = C.CAR_SCALE;
+        setA(c.rig.g, 'transform', 'translate(' + (c.x - 65 * s).toFixed(1) + ',' +
+             (C.LANE_Y - 57 * s).toFixed(1) + ') scale(' + s + ')');
+        setA(c.rig.grime, 'opacity', c.grime.toFixed(3));
+        setA(c.rig.shine, 'opacity', shineFor(c.grime));
+        setA(c.rig.wet,       'opacity', (c.wet   || 0).toFixed(2));
+        setA(c.rig.foamG,     'opacity', (c.foamL || 0).toFixed(2));
+        setA(c.rig.glassGlow, 'opacity', ((c.glow || 0) * .5).toFixed(2));
+        if (!REDUCED.matches && moving)
+          for (const w of c.rig.wheels) setA(w, 'transform', 'rotate(' + ((c.x * 3.2) % 360).toFixed(0) + ')');
+        setA(c.rig.plate, 'opacity', c.state === 'LEAVING' ? '0' : '1');
+        c.rig.plateText.textContent =
+            c.state === 'CHECKIN' ? 'CHECKING IN'
+          : c.state === 'AIRDRY'  ? 'AIR DRY'
+          : c.state === 'DRYING'  ? 'TOWEL & INTERIOR'
+          : c.state === 'BYE'     ? 'ALL DONE'
+          : c.washed ? c.washed + ' call' + (c.washed === 1 ? '' : 's') : 'IN WASH';
+      }
+      if (c.state === 'AIRDRY' && Math.abs(c.targetX - c.x) <= C.ARRIVE_EPS){
+        c.state = 'DRYING'; c.targetX = ZONES.DRY.cx; outroTimers(c);
+      }
+      if (c.state === 'LEAVING' && c.x >= C.PARK_X - 1){
+        c.state = 'GONE'; SCENE.unmountLaneCar(c); WORLD.cars.splice(i, 1);
+      }
+    }
+    for (const rig of SCENE.bayRigs){
+      if (!rig.rig || !rig.carModel) continue;
+      setA(rig.rig.grime, 'opacity', rig.carModel.grime.toFixed(3));
+      setA(rig.rig.shine, 'opacity', shineFor(rig.carModel.grime));
+    }
+  },
+  frame(now){
+    const dt = CLOCK.step(Math.max(0, (now - this.last) / 1000)); this.last = now;
+    this.pump();
+    if (FEED.demo) DEMO.step(dt);
+    this.sim(dt);
+    P.step(dt);
+    this.frames++;
+    if (now - this.fpsAt > 500){ this.fps = Math.round(this.frames * 1000 / (now - this.fpsAt));
+                                 this.frames = 0; this.fpsAt = now; }
+    requestAnimationFrame(this._f);
+  },
+
+  sim(dt){
+    const t = CLOCK.now();
+
+    /* ── the lane car ── */
+    this.paint(false, dt);
+
+    /* ── the helpers ──
+       One washer per live stage. If the conveyor has carried the car past
+       their station they take the work TO the car — hand tools at the
+       bodywork — because a real conveyor never runs backwards. No idle
+       bystanders: a helper is on stage only while a real call of their
+       family is in flight. */
+    const carW = LANE.car;
+    const airW = WORLD.cars.find(c2 => c2.state === 'AIRDRY');
+    let backIdx = 0;
+    for (const r of SCENE.stationRigs){
+      if (!r.live) continue;
+      let hx = r.st.cx - 96;
+      if (r.st.i === 3 && airW) hx = airW.x - 96;
+      else if (r.st.i < 3 && carW && carW.state === 'IN_WASH' && r.st.i < carW.station)
+        hx = carW.x - 96 - (backIdx++) * 34;      // touch-up crew lines up at the car
+      setA(r.wash.g, 'transform', 'translate(' + hx.toFixed(1) + ',' + C.LANE_Y + ')');
+      const sw = REDUCED.matches ? 0 : Math.sin(t * 9 + r.st.i * 1.3) * 24;
+      setA(r.wash.arm, 'transform', 'translate(6,17) rotate(' + sw.toFixed(1) + ')');
+    }
+    /* Josh, Jeremy and Levi work only during their own phase; off-shift they
+       stand at their post, dimmed, rather than miming work nobody asked for. */
+    for (const r of SCENE.zoneRigs){
+      const sw = r.live && !REDUCED.matches
+        ? (r.z.id === 'BYE' ? Math.sin(t * 3) * 34 : Math.sin(t * 7.5) * 20) : 0;
+      setA(r.wash.arm, 'transform', 'translate(6,17) rotate(' + sw.toFixed(1) + ')');
+    }
+
+    /* wash layers on the lane car — they move ONLY while a matching stage is
+       genuinely live, or in the outro of a turn that really ended */
+    const lc = LANE.car;
+    if (lc && lc.state === 'IN_WASH'){
+      const live = i => SCENE.stationRigs[i] && SCENE.stationRigs[i].live;
+      if (live(0)){ lc.wet   = Math.min(1, (lc.wet   || 0) + dt * 1.4);
+                    lc.foamL = Math.max(0, (lc.foamL || 0) - dt * .5); }
+      if (live(1)){ lc.foamL = Math.min(1, (lc.foamL || 0) + dt * 1.1);
+                    lc.wet   = Math.min(1, (lc.wet   || 0) + dt * .3); }
+      if (live(2)){ lc.foamL = Math.max(0, (lc.foamL || 0) - dt * 1.5);
+                    lc.wet   = Math.min(1, (lc.wet   || 0) + dt * .5); }
+      if (live(3)){ lc.wet   = Math.max(0, (lc.wet   || 0) - dt * 1.2); }
+    }
+    for (const c of WORLD.cars){
+      if (c.state === 'AIRDRY'){
+        c.wet   = Math.max(0, (c.wet   || 0) - dt * 1.6);
+        c.foamL = Math.max(0, (c.foamL || 0) - dt * 1.2);
+      }
+      if (c.state === 'DRYING'){
+        c.foamL = Math.max(0, (c.foamL || 0) - dt * 2);
+        c.wet   = Math.max(0, (c.wet   || 0) - dt * 1.4);
+        c.glow  = Math.min(1, (c.glow  || 0) + dt * .8);
+      }
+    }
+
+    /* Jeremy's towel + vacuum hose — only while a car is genuinely in DRYING */
+    const dcar = WORLD.cars.find(c => c.state === 'DRYING');
+    if (SCENE.dryFx){
+      setA(SCENE.dryFx.g, 'opacity', dcar ? '1' : '0');
+      if (dcar && !REDUCED.matches){
+        const tx2 = dcar.x + Math.cos(t * 2.6) * 42;
+        const ty2 = C.LANE_Y - 80 + Math.sin(t * 5.2) * 18;
+        setA(SCENE.dryFx.towel, 'transform', 'translate(' + tx2.toFixed(1) + ',' + ty2.toFixed(1) +
+             ') rotate(' + (Math.sin(t * 5.2) * 24).toFixed(1) + ')');
+        setA(SCENE.dryFx.hose, 'd', 'M' + (ZONES.DRY.cx + 74) + ',300 Q' + (dcar.x + 70).toFixed(0) +
+             ',330 ' + (dcar.x + 24).toFixed(0) + ',' + (C.LANE_Y - 56));
+        if (Math.random() < .3) P.spawn(tx2 + rnd(-10,10), ty2 + rnd(-8,8), 'spark');
+      }
+    }
+    /* Levi's gleam sweep while the car says goodbye */
+    const bcar = WORLD.cars.find(c => c.state === 'BYE');
+    if (bcar && bcar.rig){
+      setA(bcar.rig.gleam, 'opacity', REDUCED.matches ? '0' : '1');
+      if (!REDUCED.matches){
+        setA(bcar.rig.gleamBar, 'x', (-30 + ((t * 95) % 190)).toFixed(1));
+        if (Math.random() < .22) P.spawn(bcar.x + rnd(-62,62), C.LANE_Y - rnd(20,64), 'spark');
+      }
+    }
+
+    /* the thought bubble follows the car whenever nothing is in flight */
+    const th = SCENE.thought, ph = WORLD.phase;
+    const thinking = ph === 'CHECKIN' || ph === 'THINKING';
+    setA(th.g, 'opacity', thinking ? '1' : '0');
+    if (thinking && LANE.car){
+      setA(th.g, 'transform', 'translate(' + LANE.car.x.toFixed(1) + ',' +
+           (C.LANE_Y - 152).toFixed(1) + ')');   // clear of the top roller
+      th.cap.textContent = ph === 'CHECKIN' ? 'reading the job' : 'no call in flight';
+      if (!REDUCED.matches)
+        th.dots.forEach((d, k) =>
+          setA(d, 'opacity', (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * 4 - k * 0.9))).toFixed(2)));
+    }
+
+    /* ── emitters: driven by syncTruth's booleans, never by a timer ── */
+    if (!REDUCED.matches){
+      this.acc = (this.acc || 0) + dt;
+      const step = 1 / C.EMIT_HZ;
+      while (this.acc >= step){
+        this.acc -= step;
+        const carE = LANE.car;
+        const airI = WORLD.cars.find(c2 => c2.state === 'AIRDRY');
+        for (const r of SCENE.stationRigs){
+          if (!r.live) continue;
+          const st = r.st;
+          if (st.i === 3){                        // blowers ride the exiting car
+            if (airI){ P.spawn(airI.x - 72, C.LANE_Y - rnd(18,84), 'air');
+                       P.spawn(airI.x + rnd(-50,50), C.LANE_Y - rnd(28,68), 'mist'); }
+            continue;
+          }
+          const touch = carE && carE.state === 'IN_WASH' && carE.station > st.i;
+          if (touch){                             // hand tools at the car, not the arch
+            if (st.jet === 'pour')  P.spawn(carE.x + rnd(-46,46), C.LANE_Y - rnd(26,72), 'mist');
+            if (st.jet === 'foam')  P.spawn(carE.x + rnd(-50,50), C.LANE_Y - rnd(30,80), 'foam');
+            if (st.jet === 'scrub') P.spawn(carE.x + rnd(-50,50), C.LANE_Y - rnd(24,70), 'fleck');
+            continue;
+          }
+          const cx = st.cx;
+          if (st.jet === 'pour'){
+            const nx = st.nozzles ? st.nozzles[(Math.random() * st.nozzles.length) | 0] : cx;
+            P.spawn(nx + rnd(-3,3), rnd(170, 330), 'pour');
+            P.spawn(nx + rnd(-12,12), 356, 'mist');            // splash off the roof
+          }
+          if (st.jet === 'foam')  P.spawn(cx + rnd(-72,72), C.LANE_Y - rnd(50,108), 'foam');
+          if (st.jet === 'scrub'){ P.spawn(cx + rnd(-84,84), C.LANE_Y - rnd(28,96), 'fleck');
+                                   P.spawn(cx + rnd(-60,60), C.LANE_Y - rnd(38,84), 'foam'); }
+        }
+        for (const rig of SCENE.bayRigs){
+          if (!rig.live) continue;
+          P.spawn(rig.b.cx + rnd(-52,52), rig.b.ground - rnd(8,48), 'foam');
+        }
+      }
+      // Equipment moves only while its own step is genuinely running.
+      // Machinery moves only with the car genuinely under it (sensor-gated).
+      for (const r of SCENE.stationRigs){
+        if (!r.fxOn) continue;
+        const st = r.st;
+        if (st.gear === 'rollers'){
+          if (st.brushes) st.brushes.forEach((b, k) =>
+            setA(b.stripes, 'transform',
+                 'translate(0,' + ((((t * 150 + k * 11) % 22)) - 11).toFixed(1) + ')'));
+          if (st.topRoller){
+            setA(st.topRoller.stripes, 'transform',
+                 'translate(' + ((((t * 170) % 18)) - 9).toFixed(1) + ',0)');
+            setA(st.topRoller.g, 'transform',
+                 'translate(0,' + (Math.sin(t * 6) * 3).toFixed(1) + ')');
+          }
+        } else if (st.gear === 'blower' && st.streaks){
+          st.streaks.forEach((sk, k) =>
+            setA(sk, 'x', (st.x0 + 14 + ((t * 340 + k * 41) % (C.STATION_W - 92))).toFixed(1)));
+        }
+      }
+      /* exit sparkle burst */
+      if (t - WORLD.sparkleAt < .5 && Math.random() < .8)
+        P.spawn(ZONES.DRY.cx + rnd(-60,60), C.LANE_Y - rnd(10,60), 'spark');
+    }
+
+    /* bay washers scrub while live */
+    for (const rig of SCENE.bayRigs){
+      if (!rig.wash) continue;
+      const sw = rig.live && !REDUCED.matches ? Math.sin(t * 10 + rig.b.i) * 24 : 0;
+      setA(rig.wash.arm, 'transform', 'translate(6,17) rotate(' + sw.toFixed(1) + ')');
+    }
+
+    /* add-on board decay */
+    for (const id in SCENE.addonRigs){
+      const r = SCENE.addonRigs[id];
+      const hot = t - r.lastAt < 1.1;
+      setA(r.dot, 'fill', hot ? '#3fd8ff' : r.n ? '#1f4a63' : '#1b2740');
+      setA(r.lab, 'fill', hot ? '#c6d4e8' : r.n ? '#6e7f99' : '#4b5a75');
+      r.cnt.textContent = r.n ? String(r.n) : '';
+      setA(r.cnt, 'fill', r.n ? '#4b5a75' : '#22314e');
+    }
+  }
+};
+
+/* ─── M15 · HUD — vanilla DOM, no framework, no network ─────────────────── */
+const HUD = {
+  dirty:true, lastRender:0,
+  els:{},
+  init(){
+    const g = id => document.getElementById(id);
+    this.els = { wash:g('s-wash'), crew:g('s-crew'), queue:g('s-queue'), done:g('s-done'),
+                 conn:g('conn'), connT:g('conn-t'), rows:g('rows'), sideN:g('side-n'),
+                 seed:g('f-seed') };
+    this.els.seed.textContent = 'seed ' + SEED + (DEBUG ? ' · debug' : '');
+  },
+  /* Wall-clock throttled, not dt-accumulated, because this is called from both
+     the pump and the frame and must not depend on either one running. */
+  maybeRender(){
+    const n = performance.now();
+    if (n - this.lastRender < 1000 / C.HUD_HZ) return;
+    this.lastRender = n;
+    this.render();
+  },
+  render(){
+    const e = this.els;
+    let crew = 0, busy = 0;
+    for (const k in FEED.actors){ crew++; if (FEED.actors[k].liveN > 0) busy++; }
+    e.wash.textContent  = String(busy);
+    e.crew.textContent  = String(crew);
+    e.queue.textContent = String(LANE.queue.length);
+    e.done.textContent  = String(LANE.finished);
+    if (SCENE.queueText)
+      SCENE.queueText.textContent = LANE.queue.length
+        ? LANE.queue.length + ' car' + (LANE.queue.length === 1 ? '' : 's') + ' waiting'
+        : '';
+
+    if (DEBUG)
+      e.seed.textContent = 'seed ' + SEED + ' · fps ' + ENGINE.fps +
+                           ' · ev ' + FEED.lastSeq +
+                           (FEED.dropped ? ' · dropped ' + FEED.dropped : '');
+    const cls = FEED.demo ? 'demo' : FEED.connected ? 'ok' : 'off';
+    setCls(e.conn, 'conn ' + cls);
+    e.connT.textContent = FEED.demo ? 'demo — not connected to Claude'
+                        : FEED.connected ? 'live' : 'reconnecting…';
+
+    /* ticket */
+    const T = SCENE.ticket;
+    if (T){
+      const car = LANE.car;
+      if (car){
+        const secs = Math.floor((Date.now() - car.startedAt) / 1000);
+        const st = car.station >= 0 ? STATIONS[car.station] : null;
+        const ph = WORLD.phase;
+        T.l1.textContent =
+            ph === 'CHECKIN'  ? 'CHECKING IN — Josh'
+          : ph === 'THINKING' ? 'PAUSED IN THE TUNNEL — Nick'
+          : st ? 'STAGE ' + (st.i + 1) + ' OF ' + STATIONS.length + ' — ' + st.n + ' — Nick'
+               : 'IN THE TUNNEL — Nick';
+        T.l2.textContent =
+            (ph === 'CHECKIN'  ? 'reading the job before touching a tool'
+           : ph === 'THINKING' ? 'no tool call in flight — Claude is thinking'
+           : st ? st.sub : 'working')
+          + '   ·   ' + car.washed + ' completed call' + (car.washed === 1 ? '' : 's')
+          + (car.touch ? '   ·   ' + car.touch + ' touch-up'
+                        + (car.touch === 1 ? '' : 's') + ' at the car' : '');
+        T.l3.textContent = 'elapsed ' + Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')
+                         + (car.unattended ? '   ·   already under way when the wash opened' : '');
+        T.l4.textContent = 'like a real conveyor the car only rolls forward — earlier-stage work '
+                         + 'is a touch-up crew at the car, and no percentage is shown because none can be known';
+      } else {
+        // the outro: the turn really ended, and Jeremy then Levi finish it off
+        const out = WORLD.cars.find(c => c.state === 'DRYING' || c.state === 'BYE');
+        if (out){
+          const secs = Math.max(0, Math.round((out.endedAt - out.startedAt) / 1000));
+          const drying = out.state === 'DRYING';
+          T.l1.textContent = drying ? 'TOWEL & INTERIOR — Jeremy' : 'GOODBYE — Levi';
+          T.l2.textContent = drying
+            ? 'the turn ended — towel dry, vacuum the inside'
+            : 'ticket handed back — thanks, see you next time';
+          T.l3.textContent = out.washed + ' call' + (out.washed === 1 ? '' : 's') + ' completed'
+                           + (out.touch ? '   ·   ' + out.touch + ' touch-up'
+                                        + (out.touch === 1 ? '' : 's') : '')
+                           + '   ·   took ' + Math.floor(secs / 60) + ':'
+                           + String(secs % 60).padStart(2, '0');
+          T.l4.textContent = drying ? ''
+            : 'the final notes stay with the customer: the viewer never receives '
+            + "Claude's reply, only that the turn ended";
+        } else {
+          T.l1.textContent = LANE.finished ? 'FORECOURT CLEAR' : 'NO CAR YET';
+          T.l2.textContent = LANE.finished ? LANE.finished + ' car' + (LANE.finished === 1 ? '' : 's') + ' finished this session' : '';
+          T.l3.textContent = FEED.demo ? 'demo mode — canned traffic, no Claude attached'
+                                       : 'ask Claude to do something and a car will pull in';
+          T.l4.textContent = '';
+        }
+      }
+    }
+
+    /* activity rows */
+    if (!this.dirty) return;
+    this.dirty = false;
+    e.sideN.textContent = ACT.rows.length ? ACT.rows.length + (FEED.dropped ? ' · ' + FEED.dropped + ' dropped' : '') : '';
+    if (!ACT.rows.length){
+      e.rows.innerHTML = '';
+      const p = document.createElement('p'); p.className = 'empty';
+      p.innerHTML = FEED.demo
+        ? '<b>Demo mode.</b> Opened directly, so this is canned traffic — useful for design, not a real session. Start the server to attach it to Claude.'
+        : '<b>Connected.</b> Nothing has happened yet. Ask Claude to do something and a car will pull in.';
+      e.rows.appendChild(p); return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const r of ACT.rows.slice(0, C.ROWS_SHOWN)){
+      const rec = FEED.actors[r.actorId];
+      const who = rec ? rec.crew.name : r.actorId === 'you' ? 'you'
+                : r.actorId === 'claude' ? 'Claude' : String(r.actorId).slice(0, 6);
+      const d = document.createElement('div'); d.className = 'ev';
+      d.innerHTML =
+        '<span class="s s-' + r.status + '">●</span>' +
+        '<span class="who"></span>' +
+        '<span class="tool"></span>' +
+        '<span class="ms"></span>';
+      d.children[1].textContent = who;
+      d.children[2].textContent = r.tool;
+      if (r.target){ const i = document.createElement('i'); i.textContent = ' · ' + r.target; d.children[2].appendChild(i); }
+      d.children[3].textContent = r.status === 'run' ? '…' : r.ms ? r.ms + 'ms' : '';
+      frag.appendChild(d);
+    }
+    e.rows.innerHTML = ''; e.rows.appendChild(frag);
+  }
+};
+function setCls(n, c){ if (n.className !== c) n.className = c; }
+
+/* ─── DEMO — canned traffic when the page is opened directly ────────────── */
+/* Never runs while connected. It exists so the scene can be designed without
+   a live Claude, and it says so in the HUD so it can't be mistaken for real. */
+const DEMO = {
+  t:0, script:[], i:0, next:0, seqn:0,
+  start(){
+    FEED.claim('main', 'main', '', 'demo');
+    this.plan();
+  },
+  plan(){
+    const S = [];
+    const tool = (a, tl, tg, ms) => S.push({ a, tl, tg, ms });
+    S.push({ prompt:true });
+    tool('main','Read','index.html',420);
+    // a real parallel burst: three steps light at once and the crew appears
+    S.push({ par:[['main','Read','carwash_server.py',380],
+                  ['main','Edit','index.html',760],
+                  ['main','Bash','npm test',300]] });
+    S.push({ spawn:'d1', type:'Explore', label:'map the tunnel code' });
+    tool('main','WebFetch','docs.tauri.app',540);
+    tool('d1','Glob','pattern (9 chars)',150); tool('d1','Read','README.md',210);
+    tool('main','Write','notes.md',330);
+    S.push({ spawn:'d2', type:'code-reviewer', label:'check the redaction path' });
+    tool('main','Edit','index.html',540);
+    tool('d2','Read','carwash_server.py',300);
+    tool('main','Bash','git status',180);
+    S.push({ par:[['main','Write','notes.md',520],
+                  ['main','mcp__github__list_prs','github',820],
+                  ['main','TodoWrite','',640]] });
+    tool('d1','Read','plugin.json',140); S.push({ stop:'d1' });
+    tool('main','Bash','npm run',900); tool('d2','Grep','pattern (12 chars)',220);
+    S.push({ stop:'d2' });
+    tool('main','TodoWrite','',90);
+    tool('main','Read','index.html',260);            // late read = a touch-up at the car
+    tool('main','Edit','index.html',410);
+    S.push({ turn:true });
+    this.script = S; this.i = 0; this.next = 1.0;
+  },
+  step(dt){
+    this.t += dt;
+    if (this.t < this.next) return;
+    if (this.i >= this.script.length){ this.i = 0; this.next = this.t + 3.5; this.plan(); return; }
+    const s = this.script[this.i++];
+    const ev = (t, a, d) => FEED.apply({ v:1, seq:++this.seqn, ts:Date.now()/1000, t, s:'demo', a, d });
+    if (s.prompt) ev('prompt.submitted', 'main', { chars: 64 });
+    else if (s.spawn) ev('actor.spawned', s.spawn, { kind:'subagent', agent_type:s.type, label:s.label });
+    else if (s.stop)  ev('actor.stopped', s.stop, {});
+    else if (s.turn)  ev('turn.ended', 'main', {});
+    else if (s.par){
+      for (const [a, tl, tg, ms] of s.par){
+        const id = 'x' + (++this.seqn);
+        ev('tool.started', a, { id, tool:tl, target:tg, spawns:false });
+        setTimeout(() => ev('tool.finished', a, { id, tool:tl, ok:true, ms }), ms);
+      }
+    }
+    else {
+      const id = 'x' + (++this.seqn);
+      ev('tool.started', s.a, { id, tool:s.tl, target:s.tg, spawns:false });
+      setTimeout(() => ev('tool.finished', s.a, { id, tool:s.tl, ok:true, ms:s.ms }), s.ms);
+    }
+    this.next = this.t + rnd(.45, 1.15);
+  }
+};
+
+/* ─── test hooks — deterministic stepping, same contract as agent-office ── */
+window.__CW = {
+  step(n, ms){ for (let i = 0; i < n; i++) ENGINE.frame(ENGINE.last + (ms || 16.6667)); },
+  info(){ return { fps: ENGINE.fps, nodes: document.getElementsByTagName('*').length,
+                   seed: SEED, events: FEED.lastSeq, dropped: FEED.dropped }; },
+  state(){ return { phase: WORLD.phase,
+                    lane: LANE.car && { station: LANE.car.station, washed: LANE.car.washed,
+                                        touch: LANE.car.touch,
+                                        grime: +LANE.car.grime.toFixed(3), state: LANE.car.state },
+                    queue: LANE.queue.length, finished: LANE.finished,
+                    actors: Object.keys(FEED.actors).length,
+                    jets: SCENE.stationRigs.map(r => r.live)
+                          .concat(SCENE.bayRigs.map(r => !!r.live)) }; },
+  FEED, LANE, SCENE, STATIONS, BAYS, C, ACT
+};
+
+/* ─── boot ──────────────────────────────────────────────────────────────── */
+/* Deferred deliberately: the server injects __CW_LIVE at the very end of the
+   document, i.e. AFTER this script tag. Booting synchronously here would
+   always miss it and silently fall into demo mode.
+   (Do not write a literal closing-body or closing-script tag anywhere in this
+   file, including inside a comment or a string — the HTML parser ends the
+   script element at the first one it sees, and the server injects at the
+   last closing-body tag.) */
+function boot(){ HUD.init(); ENGINE.init(); HUD.render(); }
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
+</script>
+</body>
+</html>

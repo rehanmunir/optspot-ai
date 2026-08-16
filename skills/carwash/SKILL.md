@@ -1,0 +1,103 @@
+---
+name: carwash
+description: Open OPTSPOT AI (the Agent Car Wash) — a live view of Claude's own agents and tool calls as a car wash, where a task is a car and the agents are washing it. Use when the user says "open the car wash", "open the carwash", "open optspot", "open optspot ai", "wash my tasks", "show me the agents washing", "start the carwash visualizer", or asks to close/stop the car wash.
+argument-hint: "[close]"
+---
+
+# OPTSPOT AI (Agent Car Wash)
+
+A local, loopback-only server receives hook events and serves a browser view of
+them. When the server is not running the hooks cost ~1 ms of background work
+each and do nothing.
+
+This is a sibling of `agent-office` and is deliberately independent: its own
+port, its own marker directory, its own hooks. Both can be installed, and both
+can even run at once.
+
+## Open it
+
+1. **Is one already open?** Read `~/.claude/agent-carwash/carwash.json`.
+   - Present → check the pid is alive: `kill -0 <pid> 2>/dev/null && echo alive`.
+     If alive, do **not** start a second server — open the `url` from that file
+     and stop here.
+   - Absent or the pid is dead → continue.
+
+2. **Start it**, in the background, never in the foreground:
+
+   ```
+   "$CLAUDE_PROJECT_DIR/agent-carwash/server/carwash_server.py" --no-browser
+   ```
+
+   Use `run_in_background: true`. Poll for `~/.claude/agent-carwash/carwash.json`
+   (up to ~5 s) and read `url` from it. **Never assume the port** — on a
+   conflict the server binds an OS-assigned one rather than killing whatever
+   holds 47318.
+
+3. **Show it.** Open the url in the Browser pane with `preview_start({url})`.
+   Then tell the user the url in one line, and that they can say "close the car
+   wash" to stop it.
+
+## Close it
+
+Read `url` from `carwash.json` and `POST` to it with `close` appended:
+
+```
+curl -s -X POST "<url>close"
+```
+
+If that fails, `kill <pid>` from the same file. Either way the server removes
+its marker on exit, which returns the hooks to the fast path.
+
+## How to read it
+
+- A **car** is one turn — your prompt in, Claude's turn ended.
+- A **washer** is one agent. Every subagent takes a **detail bay** and washes
+  its own delegated task.
+- **Jets running** means a real tool call is in flight. That is the whole truth
+  channel; nothing else lights them.
+- Four phases, four staff: **Josh** checks the car in while Claude is reading
+  the job (prompt open, no tool run yet); **Nick** runs the tunnel's four
+  stages — WATER POUR (read/search), SOAP & FOAM (write/edit), ROLLERS
+  (bash/MCP), AIR DRY (the exit ride after the turn ends); the car only ever
+  rolls forward, like a real conveyor — late earlier-stage work is done by a
+  touch-up crew at the car; **Jeremy** towels it and vacuums the
+  interior after the turn really ends; **Levi** says goodbye and the clean car
+  leaves.
+- Spawning agents, checklist tools (TodoWrite/Skill) and AskUserQuestion light an **add-on service** instead of
+  moving the car, because they are real work that says nothing about which
+  stage the turn is in.
+- There is **no percentage and no progress bar**: the hook stream cannot know
+  how much of a turn remains. Grime thins as real calls complete but plateaus;
+  only the turn ending makes a car clean.
+
+## If nothing moves
+
+Hooks are registered in `.claude/settings.json` in the project (and optionally
+globally via `scripts/install-global-hooks.sh`). They only fire in sessions
+started after that file existed. If the wash is connected (the header says
+`● live`) but stays empty, the hooks are not firing — check with
+`claude --debug`, or set `AGENT_CARWASH_DEBUG=1` and read
+`~/.claude/agent-carwash/emit.err`.
+
+An empty forecourt with `● live` is also simply correct when Claude is idle.
+The wash does not invent traffic.
+
+## What the page can see
+
+Say this plainly if asked. The browser receives tool **names** and short derived
+labels only:
+
+- a file's **basename** (`index.html`), or `(private file)` for anything under
+  `.ssh`/`.env`/`.aws` or matching key/secret/token patterns
+- a command's **first word**, plus the subcommand for a small allowlist
+  (`git status` — never the flags or paths)
+- a URL's **hostname** only
+- `pattern (21 chars)` for a search — never the pattern itself
+- an MCP tool's **server** segment only
+
+It never receives file contents, command lines, tool outputs, search patterns,
+prompt text, or an agent's final message. Redaction happens at ingest, before
+anything is buffered, so raw payloads cannot be replayed to a later reconnect.
+
+The server binds `127.0.0.1` only, validates the `Host` header, sends no CORS
+headers, and puts a fresh 128-bit token in every URL path.
