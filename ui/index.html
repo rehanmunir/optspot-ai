@@ -78,7 +78,11 @@ body{
 #ask-in:focus{outline:none;border-color:#1f4a63}
 #ask-in::placeholder{color:var(--faint)}
 #ask-go{background:#123a4d;color:var(--cyan);border:1px solid #1f4a63;border-radius:8px;
-        padding:7px 13px;font:11px/1 var(--mono);letter-spacing:.08em;cursor:pointer}
+        padding:7px 13px;font:11px/1 var(--mono);letter-spacing:.08em;cursor:pointer;
+        transition:background .2s,transform .12s}
+#ask-go:hover:not(:disabled){background:#16465d}
+#ask-go:active:not(:disabled){transform:scale(.96)}
+#ask-in{transition:border-color .2s}
 #ask-go:disabled,#ask-in:disabled{opacity:.45;cursor:default}
 #answer{margin-top:9px;font:12px/1.55 var(--sans);color:var(--ink);white-space:pre-wrap;
         overflow-wrap:break-word;max-height:230px;overflow-y:auto;background:#0d1626;
@@ -92,7 +96,9 @@ body{
 #tk4{font:10px/1.5 var(--mono);color:var(--faint);margin-top:2px}
 #addons{margin-top:9px;display:flex;flex-wrap:wrap;gap:4px}
 .chip{display:inline-flex;align-items:center;gap:5px;font:10px/1 var(--mono);
-      padding:3px 8px;border:1px solid var(--line);border-radius:999px;color:var(--faint)}
+      padding:3px 8px;border:1px solid var(--line);border-radius:999px;color:var(--faint);
+      transition:color .25s,border-color .25s,transform .18s}
+.chip.hot{transform:translateY(-1px)}
 .chip .dot{font-size:8px}
 .chip.used{color:var(--dim)}
 .chip.hot{color:var(--cyan);border-color:#1f4a63}
@@ -391,6 +397,7 @@ function makeCarModel(opts){
     station: opts.station != null ? opts.station : -1,
     x: opts.x, targetX: opts.x,
     grime: C.GRIME_START, washed: 0,
+    vx: 0, wheelA: 0, wobble: (seedN % 628) / 100,
     startedAt: Date.now(), endedAt: 0,
     // lane car: WASH · RINSE · DRYING · BYE · REJECT · LEAVING · GONE
     state: opts.state || 'WASH',
@@ -463,6 +470,7 @@ function finishCallCar(tid, ok, ms){
     car.state = 'RINSE';                    // ride out through the blowers
     TURN.washed++; SESSION.washed++;
     WORLD.sparkleAt = CLOCK.now();
+    RINGS.at(car.x, C.LANE_Y - 34);
   } else {
     car.state = 'REJECT';                   // no towel for a failed job
     TURN.failed++;
@@ -491,6 +499,33 @@ function txt(parent, x, y, s, attrs){
   n.textContent = s; return n;
 }
 const setA = (n, k, v) => { if (n.__c === undefined) n.__c = {}; if (n.__c[k] !== v){ n.__c[k] = v; n.setAttribute(k, v); } };
+
+/* Eased opacity, exponential approach — the Material way: state changes are
+   instant in the data (syncTruth still snaps its targets on the very frame
+   the evidence arrives), and the PIXELS ease toward them. Lights warm up
+   fast and cool down slower, like real lamps. Hidden tab: snap, no easing
+   debt. */
+const FADE = {
+  jobs: new Map(),
+  to(node, target, k){
+    let j = this.jobs.get(node);
+    if (!j){
+      j = { cur: parseFloat(node.getAttribute('opacity') || '0') || 0 };
+      this.jobs.set(node, j);
+    }
+    j.target = target; j.k = k || 10;
+  },
+  step(dt, snap){
+    for (const [n, j] of this.jobs){
+      if (snap || REDUCED.matches) j.cur = j.target;
+      else {
+        j.cur += (j.target - j.cur) * Math.min(1, dt * j.k);
+        if (Math.abs(j.cur - j.target) < .004) j.cur = j.target;
+      }
+      setA(n, 'opacity', j.cur.toFixed(3));
+    }
+  }
+};
 
 /* ── RIGS — a car, and a washer ──────────────────────────────────── */
 /* Local car space: 130 × 58, wheels on the ground line at y = 57. */
@@ -640,6 +675,34 @@ function makeWasher(crew){
   return { g, body, arm, wand };
 }
 
+/* Confirmation rings — one expanding pulse at the car, on the frame its
+   call really completed. The single most load-bearing moment gets the
+   clearest motion. */
+const RINGS = {
+  pool: [], idx: 0,
+  init(layer){
+    for (let i = 0; i < 5; i++)
+      this.pool.push({ n: el('circle', { r: 8, fill: 'none', stroke: '#7de8a6',
+                                         'stroke-width': 2.5, opacity: 0 }, layer),
+                       t: 9 });
+  },
+  at(x, y){
+    if (REDUCED.matches || !this.pool.length) return;
+    const r = this.pool[this.idx]; this.idx = (this.idx + 1) % this.pool.length;
+    r.t = 0; r.x = x; r.y = y;
+  },
+  step(dt){
+    for (const r of this.pool){
+      if (r.t > .5){ if (r.n.__c && r.n.__c.opacity !== '0') setA(r.n, 'opacity', '0'); continue; }
+      r.t += dt;
+      const k = r.t / .5;
+      setA(r.n, 'cx', r.x); setA(r.n, 'cy', r.y);
+      setA(r.n, 'r', (8 + 46 * (1 - Math.pow(1 - k, 3))).toFixed(1));   // ease-out
+      setA(r.n, 'opacity', (.85 * (1 - k)).toFixed(2));
+    }
+  }
+};
+
 /* ── PARTICLES — pooled; count is bounded regardless of load ─────── */
 const P = {
   layer:null, pool:[], head:0,
@@ -704,6 +767,14 @@ const SCENE = {
     this.drawBays();
     this.drawThought();
     P.init(this.layers.parts);
+    RINGS.init(this.layers.fx);
+    // staggered reveal on load — scenery only, no lamps, nothing pretending
+    // to be activity
+    if (!REDUCED.matches)
+      ['tunnel', 'bays', 'crew', 'laneCar'].forEach((k, i) => {
+        setA(this.layers[k], 'opacity', '0');
+        FADE.to(this.layers[k], 1, 3.4 - i * 0.55);
+      });
   },
 
   /* Thinking is the complement of "a call is in flight" inside an open turn.
@@ -954,11 +1025,17 @@ const SCENE = {
     this.tunnelBanner = txt(g, (C.TUNNEL_X0 + C.TUNNEL_X1) / 2, 111,
           'THE TUNNEL — Nick', { fill:'#3fd8ff', 'font-size':10, 'letter-spacing':2.4,
           'text-anchor':'middle', opacity:.55, 'font-weight':700 });
-    // curtain dividers at the mouth and the exit
-    for (const cxx of [C.TUNNEL_X0 - 12, C.TUNNEL_X1 + 6])
+    // curtain dividers at the mouth and the exit — they swing when a car
+    // really pushes through, and settle after
+    this.curtains = [];
+    for (const cxx of [C.TUNNEL_X0 - 12, C.TUNNEL_X1 + 6]){
+      const strips = [];
       for (let k = 0; k < 4; k++)
-        el('path', { d:'M' + (cxx + k * 7) + ',122 q3,42 0,88 q-3,44 0,84',
-                     fill:'none', stroke:'#e8833c', 'stroke-width':5.2, opacity:.75 }, g);
+        strips.push(el('path', { d:'M' + (cxx + k * 7) + ',122 q3,42 0,88 q-3,44 0,84',
+                                 fill:'none', stroke:'#e8833c', 'stroke-width':5.2,
+                                 opacity:.75 }, g));
+      this.curtains.push({ x: cxx + 10, strips, a: 0 });
+    }
 
     STATIONS.forEach(st => {
       const bay = el('g', {}, g);
@@ -1310,14 +1387,14 @@ function syncTruth(){
              : r.z.id === 'DRY'     ? !!drying
              :                        !!leaving;
     r.live = on;
-    setA(r.lamp, 'fill', on ? '#ffc23a' : '#241e19');
-    setA(r.halo, 'opacity', on ? '.30' : '0');
-    setA(r.pool, 'opacity', on ? '.85' : '0');
-    setA(r.holder, 'opacity', on ? '1' : '.4');
+    setA(r.lamp, 'fill', on ? '#ffc23a' : '#241e19');   // the lamp itself snaps: truth
+    FADE.to(r.halo, on ? .30 : 0, on ? 14 : 5);
+    FADE.to(r.pool, on ? .85 : 0, on ? 12 : 5);
+    FADE.to(r.holder, on ? 1 : .4, 8);
     setA(r.nm, 'fill', on ? '#eaf2ff' : '#5c6d88');
     setA(r.who, 'fill', on ? '#3fd8ff' : '#334463');
-    if (r.z.id === 'CHECKIN' && SCENE.custIn) setA(SCENE.custIn, 'opacity', on ? '1' : '0');
-    if (r.z.id === 'BYE' && SCENE.custOut)    setA(SCENE.custOut, 'opacity', on ? '1' : '0');
+    if (r.z.id === 'CHECKIN' && SCENE.custIn) FADE.to(SCENE.custIn, on ? 1 : 0, on ? 9 : 5);
+    if (r.z.id === 'BYE' && SCENE.custOut)    FADE.to(SCENE.custOut, on ? 1 : 0, on ? 9 : 5);
   }
   setA(SCENE.tunnelBanner, 'opacity', phase === 'TUNNEL' ? '1' : '.45');
 
@@ -1332,27 +1409,29 @@ function syncTruth(){
     const on = i3 ? !!rinsing : busyAt[r.st.i] > 0;
     r.live = on;
     r.fxOn = on;
-    setA(r.lamp, 'fill', on ? '#ffc23a' : '#241e19');
-    setA(r.halo, 'opacity', on ? '.30' : '0');
-    setA(r.pool, 'opacity', on ? '.85' : '0');
+    setA(r.lamp, 'fill', on ? '#ffc23a' : '#241e19');   // truth snaps
+    FADE.to(r.halo, on ? .30 : 0, on ? 14 : 5);
+    FADE.to(r.pool, on ? .85 : 0, on ? 12 : 5);
     setA(r.num,  'fill', on ? '#3fd8ff' : r.st.passes ? '#2e4166' : '#22314e');
     setA(r.nm,   'fill', on ? '#eaf2ff' : r.st.passes ? '#8fa2bd' : '#5c6d88');
-    setA(r.helper, 'opacity', on ? '1' : '0');
+    FADE.to(r.helper, on ? 1 : 0, on ? 11 : 5);
     // a step that has really been through shows its own count and total time
     r.stat.textContent = r.st.passes
       ? r.st.passes + '× · ' + (r.st.ms >= 1000 ? (r.st.ms / 1000).toFixed(1) + 's' : r.st.ms + 'ms')
       : '—';
     setA(r.stat, 'fill', on ? '#3fd8ff' : r.st.passes ? '#4b5a75' : '#334463');
     // static gear fx (streams, cones, streaks, puddle) follow the car sensor
-    if (r.st.fx) for (const f of r.st.fx) setA(f, 'opacity', r.fxOn ? (f.__fxo || '.5') : '0');
+    if (r.st.fx)
+      for (const f of r.st.fx)
+        FADE.to(f, r.fxOn ? parseFloat(f.__fxo || '.5') : 0, r.fxOn ? 16 : 7);
   }
   for (const rig of SCENE.bayRigs){
     const rec = rig.b.actorId ? FEED.actors[rig.b.actorId] : null;
     const on  = !!(rec && rec.liveN > 0);
     rig.live = on;
     setA(rig.lamp, 'fill', on ? '#ffc23a' : '#241e19');
-    setA(rig.halo, 'opacity', on ? '.28' : '0');
-    setA(rig.pool, 'opacity', on ? '.8' : '0');
+    FADE.to(rig.halo, on ? .28 : 0, on ? 14 : 5);
+    FADE.to(rig.pool, on ? .8 : 0, on ? 12 : 5);
     // the step this subagent last had real evidence for
     const stp = rec && rec.step != null ? STATIONS[rec.step] : null;
     setA(rig.stepBox, 'opacity', stp ? '1' : '0');
@@ -1386,6 +1465,7 @@ const ENGINE = {
   pump(){
     FEED.drain();
     syncTruth();
+    if (document.hidden) FADE.step(0, true);   // no easing debt while hidden
     // Where a car IS, is state; how it glides there is animation. With frames
     // throttled there is no glide, so snap — a car parked under the wrong
     // station would be a lie the eye reads before it reads the ticket.
@@ -1425,20 +1505,44 @@ const ENGINE = {
       const c = WORLD.cars[i];
       c.targetX = this.targetFor(c);
       const d = c.targetX - c.x;
-      const moving = !snap && Math.abs(d) > C.ARRIVE_EPS;
-      if (snap) c.x = c.targetX;
-      else if (moving) c.x += Math.sign(d) * Math.min(Math.abs(d), C.ROLL_SPEED * dt);
+      // Decelerate-in: speed proportional to distance, capped — the standard
+      // ease-out. Departing cars accelerate away instead (ease-in exits).
+      let vWant = Math.max(-C.ROLL_SPEED, Math.min(C.ROLL_SPEED, d * 3.4));
+      if (c.state === 'LEAVING') vWant = Math.min(760, Math.abs(c.vx) + 900 * dt);
+      if (snap){ c.x = c.targetX; c.vx = 0; }
+      else {
+        c.vx += (vWant - c.vx) * Math.min(1, dt * 6);
+        c.x += c.vx * dt;
+      }
+      const moving = !snap && Math.abs(c.vx) > 2;
       if (c.rig){
         const s = C.CAR_SCALE;
+        const tN = CLOCK.now();
+        // secondary motion, all of it earned: shake under the rollers the car
+        // is really beneath, a soft wash bob while its call runs, an engine
+        // idle at the hold line, a lean with real acceleration
+        let bobY = 0, tilt = 0;
+        if (!REDUCED.matches && !snap){
+          tilt = Math.max(-2.2, Math.min(2.2, -c.vx * 0.004));
+          if (c.state === 'WASH'){
+            const underRoll = c.x >= STATIONS[2].x0 - 18 && c.x <= STATIONS[2].x1 + 18;
+            bobY = underRoll            ? Math.sin(tN * 34 + c.wobble) * 1.8
+                 : Math.abs(c.vx) < 6   ? Math.sin(tN * 12 + c.wobble) * .45
+                 :                        Math.sin(tN * 5 + c.wobble) * .9;
+          }
+        }
         setA(c.rig.g, 'transform', 'translate(' + (c.x - 65 * s).toFixed(1) + ',' +
-             (C.LANE_Y - 57 * s).toFixed(1) + ') scale(' + s + ')');
+             (C.LANE_Y - 57 * s + bobY).toFixed(1) + ') scale(' + s + ')' +
+             (tilt ? ' rotate(' + tilt.toFixed(2) + ' 65 46)' : ''));
         setA(c.rig.grime, 'opacity', c.grime.toFixed(3));
         setA(c.rig.shine, 'opacity', shineFor(c.grime));
         setA(c.rig.wet,       'opacity', (c.wet   || 0).toFixed(2));
         setA(c.rig.foamG,     'opacity', (c.foamL || 0).toFixed(2));
         setA(c.rig.glassGlow, 'opacity', ((c.glow || 0) * .5).toFixed(2));
-        if (!REDUCED.matches && moving)
-          for (const w of c.rig.wheels) setA(w, 'transform', 'rotate(' + ((c.x * 3.2) % 360).toFixed(0) + ')');
+        if (!REDUCED.matches && moving){
+          c.wheelA = (c.wheelA + c.vx * dt * 3.2) % 360;
+          for (const w of c.rig.wheels) setA(w, 'transform', 'rotate(' + c.wheelA.toFixed(0) + ')');
+        }
         setA(c.rig.plate, 'opacity', c.state === 'LEAVING' ? '0' : '1');
         c.rig.plateText.textContent =
             c.state === 'REJECT' ? '✗ ' + (c.tool || 'failed')
@@ -1468,7 +1572,9 @@ const ENGINE = {
     this.pump();
     if (FEED.demo) DEMO.step(dt);
     this.sim(dt);
+    FADE.step(dt, false);
     P.step(dt);
+    RINGS.step(dt);
     this.frames++;
     if (now - this.fpsAt > 500){ this.fps = Math.round(this.frames * 1000 / (now - this.fpsAt));
                                  this.frames = 0; this.fpsAt = now; }
@@ -1554,7 +1660,7 @@ const ENGINE = {
        open and no call is in flight */
     const th = SCENE.thought, ph = WORLD.phase;
     const thinking = ph === 'CHECKIN' || ph === 'THINKING';
-    setA(th.g, 'opacity', thinking ? '1' : '0');
+    FADE.to(th.g, thinking ? 1 : 0, thinking ? 7 : 10);
     if (thinking){
       setA(th.g, 'transform', 'translate(' + ZONES.CHECKIN.cx.toFixed(1) + ',' +
            (C.LANE_Y - 152).toFixed(1) + ')');
@@ -1619,6 +1725,19 @@ const ENGINE = {
       if (t - WORLD.sparkleAt < .5 && Math.random() < .8)
         P.spawn(ZONES.DRY.cx + rnd(-60,60), C.LANE_Y - rnd(10,60), 'spark');
     }
+
+    /* curtains swing only for a car genuinely passing through them */
+    if (!REDUCED.matches && SCENE.curtains)
+      for (const cu of SCENE.curtains){
+        let push = 0;
+        for (const c of WORLD.cars)
+          if (!c.bay && Math.abs(c.x - cu.x) < 52 && Math.abs(c.vx) > 12) push = 1;
+        cu.a += (push - cu.a) * Math.min(1, dt * 4);
+        if (cu.a > .01)
+          cu.strips.forEach((n, k) =>
+            setA(n, 'transform', 'rotate(' + (Math.sin(t * 7 + k * .9) * 8 * cu.a).toFixed(1) +
+                 ' ' + (cu.x - 10 + k * 7) + ' 122)'));
+      }
 
     /* bay washers scrub while live */
     for (const rig of SCENE.bayRigs){
