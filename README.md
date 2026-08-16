@@ -126,7 +126,10 @@ returns the output of the order **you personally placed through it**, over
 the same tokenised loopback socket, gated exactly like `/close`. One order at
 a time, five-minute cap, never buffered or logged. The spawned session runs
 with your own Claude Code auth and default print-mode permissions — mostly
-reads and searches, which is precisely what lights the tunnel.
+reads and searches, which is precisely what lights the tunnel. One setup
+note: the standalone `claude` CLI keeps its own login, separate from the
+desktop app's — if the counter answers "not logged in", run `claude` in a
+terminal and complete `/login` once.
 
 ## What the browser can see
 

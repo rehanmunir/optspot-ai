@@ -300,7 +300,15 @@ def run_claude(prompt):
     except Exception as e:
         return (False, "could not run claude: %s" % e)
     if r.returncode != 0:
-        return (False, (r.stderr or r.stdout or "claude exited %d" % r.returncode)[-4000:])
+        blurb = (r.stderr or r.stdout or "claude exited %d" % r.returncode)
+        if "Not logged in" in blurb:
+            # The standalone CLI keeps its own login, separate from the
+            # desktop app's. Say so, or this reads like a wash bug.
+            blurb = ("the local `claude` CLI is not logged in - its login is "
+                     "separate from the Claude desktop app's. Open a terminal, "
+                     "run `claude`, complete /login once (and `claude update` "
+                     "if it is old), then order again.")
+        return (False, blurb[-4000:])
     return (True, (r.stdout or "").strip()[:100000])
 
 
