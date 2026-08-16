@@ -516,6 +516,9 @@ function makeCar(model){
   for (const b of [[14,24,7],[30,19,9],[48,12,8],[66,10,9],[84,12,8],[102,19,9],
                    [118,25,7],[58,25,10],[76,24,9],[40,26,8],[92,26,8]])
     el('circle', { cx:b[0], cy:b[1], r:b[2], fill:'#f2f8ff', opacity:'.9' }, foamG);
+  for (let sp = 0; sp < 14; sp++)
+    el('circle', { cx:10 + ((sp * 37) % 112), cy:27 + ((sp * 13) % 18),
+                   r:1.1 + (sp % 3) * .6, fill:'#f2f8ff', opacity:'.75' }, foamG);
   const glassGlow = el('path', { d: GLASS[model.kind] || GLASS.sedan, fill:'#9fd8ff',
                                  opacity:0, 'pointer-events':'none' }, g);
   const gleam = el('g', { opacity:0, 'clip-path':'url(#clipCarBody-' + model.kind + ')',
@@ -531,10 +534,46 @@ function makeCar(model){
            plate, plateText: pt, plateBox: pb };
 }
 
+/* The customers — the couple whose car this is. They hand Josh the keys at
+   check-in and get them back from Levi at goodbye. On stage only while the
+   ticket really is at that moment; the wash does not invent people. */
+function makeCustomers(){
+  const g = el('g', { opacity:0 });
+  const person = (dx, coat, hair, skirt) => {
+    const p = el('g', { transform:'translate(' + dx + ',0)' }, g);
+    el('path', { d:'M-12,0 L12,0 L34,14 L10,14 Z', fill:'#000', opacity:'.14' }, p);
+    const b = el('g', { transform:'translate(0,-46)' }, p);
+    if (skirt){
+      el('path', { d:'M-8,28 L8,28 L11,40 L-11,40 Z', fill:coat }, b);
+      el('rect', { x:-4.5, y:40, width:3.4, height:6, fill:'#caa58c' }, b);
+      el('rect', { x:1.4,  y:40, width:3.4, height:6, fill:'#caa58c' }, b);
+    } else {
+      el('rect', { x:-6, y:26, width:5, height:20, rx:2.2, fill:'#161c2b' }, b);
+      el('rect', { x:1,  y:26, width:5, height:20, rx:2.2, fill:'#1d2537' }, b);
+    }
+    el('rect', { x:-8, y:10, width:16, height:19, rx:5, fill:coat }, b);
+    el('rect', { x:-8, y:10, width:16, height:5, rx:2.5, fill:'#fff', opacity:'.12' }, b);
+    el('circle', { cx:0, cy:3, r:7, fill:'#f0d2b4' }, b);
+    el('path', { d:'M-7,1 A7,7 0 0 1 7,1 L7,-1 A7,7 0 0 0 -7,-1 Z', fill:hair }, b);
+    el('circle', { cx:-2.4, cy:3.4, r:1, fill:'#1b2333' }, b);
+    el('circle', { cx:2.4,  cy:3.4, r:1, fill:'#1b2333' }, b);
+    return b;
+  };
+  person(0, '#2b3242', '#1a1e29', false);               // long dark coat
+  const w = person(26, '#c94f46', '#241c18', true);     // red coat + handbag
+  el('rect', { x:9, y:-24, width:7, height:10, rx:2, fill:'#c94f46' }, w);
+  const key = el('g', { transform:'translate(-24,-56)' }, g);
+  el('circle', { cx:0, cy:0, r:3.2, fill:'none', stroke:'#ffc23a', 'stroke-width':1.8 }, key);
+  el('rect', { x:2.6, y:-1, width:7, height:2, fill:'#ffc23a' }, key);
+  el('rect', { x:6.5, y:1, width:1.6, height:2.6, fill:'#ffc23a' }, key);
+  return g;
+}
+
 /* Washer: ~46 tall, standing on the ground line, facing the car (right). */
 function makeWasher(crew){
   const g = el('g', { class:'washer' });
   el('ellipse', { cx:0, cy:0, rx:11, ry:3.4, fill:'#000', opacity:'.34' }, g);
+  el('path', { d:'M-10,0 L12,0 L36,13 L14,13 Z', fill:'#000', opacity:'.13' }, g);
   const body = el('g', { transform:'translate(0,-46)' }, g);
   el('rect', { x:-6, y:26, width:5, height:20, rx:2.2, fill:'#1d2740' }, body);
   el('rect', { x:1,  y:26, width:5, height:20, rx:2.2, fill:'#243050' }, body);
@@ -795,12 +834,27 @@ const SCENE = {
       el('rect', { x:z.cx - 98, y:250, width:36, height:56, rx:4, fill:'#33465f' }, zg);
       el('rect', { x:z.cx - 93, y:258, width:26, height:16, rx:2, fill:'#0d1626' }, zg);
       el('rect', { x:z.cx - 93, y:282, width:26, height:4, rx:2, fill:'#4a5b78' }, zg);
+      const cin = makeCustomers();
+      cin.setAttribute('transform', 'translate(' + (z.cx + 44) + ',' + C.LANE_Y + ')');
+      this.layers.crew.appendChild(cin);
+      this.custIn = cin;
     } else if (z.id === 'DRY'){                   // towel rack + a vacuum for the interior
       el('rect', { x:z.cx - 96, y:150, width:56, height:8, rx:4, fill:'#33465f' }, zg);
       for (const dx of [-92, -74, -56])
         el('rect', { x:z.cx + dx, y:158, width:14, height:26, rx:3, fill:'#e9eff9', opacity:.8 }, zg);
       el('rect', { x:z.cx + 60, y:250, width:30, height:56, rx:6, fill:'#33465f' }, zg);
       el('rect', { x:z.cx + 65, y:258, width:20, height:12, rx:2, fill:'#0d1626' }, zg);
+      // hanging mats and the detailing kit, straight out of the brochure
+      el('rect', { x:z.cx - 104, y:196, width:22, height:34, rx:4, fill:'#141a26',
+                   stroke:'#2b3b57' }, zg);
+      el('rect', { x:z.cx - 76,  y:196, width:22, height:34, rx:4, fill:'#141a26',
+                   stroke:'#2b3b57' }, zg);
+      this.dryMats = { x: z.cx - 90, y: 200 };
+      for (const [kc, kx] of [['#d9534f', 0], ['#e8b93c', 7], ['#5fb0ff', 14]])
+        el('rect', { x:z.cx + 20 + kx, y:C.LANE_Y - 14, width:5, height:14, rx:2, fill:kc }, zg);
+      el('rect', { x:z.cx + 44, y:C.LANE_Y - 12, width:26, height:12, rx:2, fill:'#c94f46' }, zg);
+      el('rect', { x:z.cx + 49, y:C.LANE_Y - 17, width:16, height:6, rx:3, fill:'none',
+                   stroke:'#c94f46', 'stroke-width':2 }, zg);
       const dfx = el('g', { opacity:0 }, this.layers.fx);
       const hose = el('path', { d:'M0,0', fill:'none', stroke:'#4a5b78', 'stroke-width':5,
                                 'stroke-linecap':'round' }, dfx);
@@ -814,6 +868,10 @@ const SCENE = {
       txt(zg, z.cx, 262, 'THANKS', { fill:'#ff53d4', 'font-size':10, 'letter-spacing':1.4,
             'text-anchor':'middle', opacity:.9 });
       el('rect', { x:z.cx - 2, y:278, width:4, height:28, fill:'#33465f' }, zg);
+      const cout = makeCustomers();
+      cout.setAttribute('transform', 'translate(' + (z.cx + 40) + ',' + C.LANE_Y + ')');
+      this.layers.crew.appendChild(cout);
+      this.custOut = cout;
     }
 
     /* the member of staff, always present — this is their post */
@@ -847,6 +905,11 @@ const SCENE = {
     this.tunnelBanner = txt(g, (C.TUNNEL_X0 + C.TUNNEL_X1) / 2, 111,
           'THE TUNNEL — Nick', { fill:'#3fd8ff', 'font-size':10, 'letter-spacing':2.4,
           'text-anchor':'middle', opacity:.55, 'font-weight':700 });
+    // curtain dividers at the mouth and the exit
+    for (const cxx of [C.TUNNEL_X0 - 12, C.TUNNEL_X1 + 6])
+      for (let k = 0; k < 4; k++)
+        el('path', { d:'M' + (cxx + k * 7) + ',122 q3,42 0,88 q-3,44 0,84',
+                     fill:'none', stroke:'#e8833c', 'stroke-width':5.2, opacity:.75 }, g);
 
     STATIONS.forEach(st => {
       const bay = el('g', {}, g);
@@ -1234,6 +1297,8 @@ function syncTruth(){
     setA(r.holder, 'opacity', on ? '1' : '.4');
     setA(r.nm, 'fill', on ? '#eaf2ff' : '#5c6d88');
     setA(r.who, 'fill', on ? '#3fd8ff' : '#334463');
+    if (r.z.id === 'CHECKIN' && SCENE.custIn) setA(SCENE.custIn, 'opacity', on ? '1' : '0');
+    if (r.z.id === 'BYE' && SCENE.custOut)    setA(SCENE.custOut, 'opacity', on ? '1' : '0');
   }
   setA(SCENE.tunnelBanner, 'opacity', phase === 'TUNNEL' ? '1' : '.45');
 
@@ -1452,6 +1517,8 @@ const ENGINE = {
         setA(SCENE.dryFx.hose, 'd', 'M' + (ZONES.DRY.cx + 74) + ',300 Q' + (dcar.x + 70).toFixed(0) +
              ',330 ' + (dcar.x + 24).toFixed(0) + ',' + (C.LANE_Y - 56));
         if (Math.random() < .3) P.spawn(tx2 + rnd(-10,10), ty2 + rnd(-8,8), 'spark');
+        if (SCENE.dryMats && Math.random() < .3)
+          P.spawn(SCENE.dryMats.x + rnd(-8, 22), SCENE.dryMats.y + rnd(-2, 28), 'mist');
       }
     }
     /* Levi's gleam sweep while the car says goodbye */
