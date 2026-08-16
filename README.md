@@ -1,5 +1,7 @@
 # OPTSPOT AI
 
+*Work hard · play hard · no drama.*
+
 A car wash for your Claude Code sessions. Every car is a real tool call,
 every washer is a real agent, and the jets run **if and only if** a call is
 genuinely in flight. Nothing on screen is invented: the page would rather sit
@@ -179,6 +181,10 @@ refuses any marker URL that is not `http://127.0.0.1:` and passes
 | `?seed=42` | fixes the RNG stream (vehicle shapes and colours) |
 | `?debug=1` | live fps, event count and drop count in the footer |
 | `?reduced=1` | forces reduced motion — no particles, no wheel spin |
+
+The OptSpot wordmark on the marquee belongs to [optspot.com](https://optspot.com)
+and is embedded here with the owner's blessing; the page still makes zero
+external requests — the mark ships inline.
 
 `window.__CW` exposes the state the invariant is defined over, so tests can
 assert lamp state directly instead of reading pixels:
