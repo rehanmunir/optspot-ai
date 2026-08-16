@@ -1,9 +1,9 @@
 # OPTSPOT AI
 
-A car wash for your Claude Code sessions. Every car is a real task, every
-washer is a real agent, and the jets run **if and only if** a real tool call
-is in flight. Nothing on screen is invented: the page would rather sit empty
-than animate a lie.
+A car wash for your Claude Code sessions. Every car is a real tool call,
+every washer is a real agent, and the jets run **if and only if** a call is
+genuinely in flight. Nothing on screen is invented: the page would rather sit
+empty than animate a lie.
 
 ```
 Claude Code ──hooks (async, never blocking)──► carwash-emit.sh ──► carwash_server.py
@@ -53,31 +53,37 @@ never be mistaken for a real session.
 
 | on screen | what it actually is |
 |---|---|
-| a **car** | one turn — your prompt in, Claude's turn ended |
+| a **car** | one tool call — it enters when the call starts, leaves clean only when it completes |
+| the **ticket** | one turn — Josh opens it at your prompt, Levi closes it at turn end |
 | a **washer** | one agent |
-| the **tunnel** | main Claude's work on your turn |
 | a **detail bay** | one subagent, washing its own delegated task |
 | **jets running** | a real tool call is in flight — the whole truth channel |
 | an **add-on service** | real work that is not a wash stage (spawning agents, checklists, asking you) |
 
+Parallel calls are several cars in the tunnel at once, because that is what
+they really are. A failed call skips the towel and leaves as dirty as it
+came. Two calls of the same family queue at the same arch. The car IS the
+in-flight call, so cars, lamps and machinery can never disagree.
+
 ### Four phases, four staff
 
-| phase | staff | entered when |
+| phase | staff | on duty when |
 |---|---|---|
-| **CHECK-IN** | Josh | a prompt is open and no tool has run yet — the welcome |
-| **THE TUNNEL** | Nick | a tool call is in flight — the four stages |
-| **TOWEL & INTERIOR** | Jeremy | `turn.ended` fired — towel dry, vacuum the inside |
-| **GOODBYE** | Levi | the ticket is read back, then the clean car leaves |
+| **CHECK-IN** | Josh | the ticket is open and no call is in flight — the welcome, and the thinking |
+| **THE TUNNEL** | Nick | cars in the wash — one per in-flight call |
+| **TOWEL & INTERIOR** | Jeremy | a car that really completed is being dried |
+| **GOODBYE** | Levi | a finished car is seen off — clean, or dirty if its call failed |
 
 Thinking is evidenced, not guessed: it is the exact complement of "a call is
-in flight" inside an open turn. The thought bubble says *no call in flight* —
-never what Claude is thinking about, because the stream doesn't carry that.
+in flight" inside an open ticket. The thought bubble hangs over Josh's podium
+and says *no call in flight* — never what Claude is thinking about, because
+the stream doesn't carry that.
 
-Josh and Nick are driven purely by events. Jeremy and Levi run on a short
-timer, the only timed moves on the page — an outro for something that
-genuinely happened, never a claim about work still in progress. Levi's
-goodbye is deliberately thin: the viewer never receives Claude's reply, so
-the ticket is measured facts only — calls completed, touch-ups, elapsed time.
+Everything is event-driven except two short per-car dwells (Jeremy's towel,
+Levi's goodbye), each of which runs strictly after that car's own real
+completion — an outro for something that genuinely happened, never a claim
+about work still in progress. The closed ticket is measured facts only:
+washed, failed, elapsed — the viewer never receives Claude's reply.
 
 ### The four stages
 
@@ -86,31 +92,17 @@ the ticket is measured facts only — calls completed, touch-ups, elapsed time.
 | 1 | WATER POUR | overhead pipe, pouring nozzles | `Read` `Grep` `Glob` `WebFetch` … — soaking the task |
 | 2 | SOAP & FOAM | three coloured foam cannons | `Write` `Edit` — laying the new material on |
 | 3 | ROLLERS | striped side brushes + top roller | `Bash` `mcp__*` — scrubbing it all over |
-| 4 | AIR DRY | blower bank | the exit ride — fired by `turn.ended`, nothing else |
+| 4 | AIR DRY | blower bank | the exit ride — fires only for a car whose call really completed |
 
-**The conveyor never runs backwards.** A real tunnel is a chain: forward or
-hold, never reverse. The car's position is the furthest stage evidenced this
-turn — advanced only by real calls, never by time. When an earlier-family
-call runs after the car has moved on, that stage's lamp lights and its washer
-takes the work *to the car*: a touch-up crew, counted on the ticket. The
-machinery is sensor-driven like the real thing — an arch only runs with the
-car under it.
-
-The car visibly changes as stages really run: wet sheen under the water,
-clinging foam under the cannons, foam scrubbed off by the rollers, water
-blown off by the dryers. Those layers are decoration, but their opacity moves
-only while a matching stage is genuinely live. Idle time changes nothing.
-
-A stage lights **per in-flight call**, not per car position — Claude runs
-tools in parallel, and each call is genuinely a different stage being worked
-on the same car. Every washer on stage is standing on an unmatched
-`tool.started`; there are no idle bystanders. Grime thins as real calls
-complete but plateaus; only the turn ending makes a car fully clean, and the
-gap between those two looks is the difference between *work happened* and
-*this is done*.
+Each car drives to its family's arch and washes there for exactly as long as
+its call really runs — wet sheen under the water, clinging foam under the
+cannons, foam scrubbed off by the rollers. On completion it rides out through
+the blowers, gets Jeremy's towel, and Levi waves it off gleaming. On failure
+it skips the towel and leaves dirty, plate stamped ✗. AIR DRY fires only for
+completed cars riding out — there is no way to reach it by waiting.
 
 Each stage shows `passes × total-ms` from the harness's own `duration_ms` —
-the only numbers on the tunnel, every one measured, reset per car.
+the only numbers on the tunnel, every one measured, reset per ticket.
 
 ## What the browser can see
 
@@ -165,7 +157,7 @@ refuses any marker URL that is not `http://127.0.0.1:` and passes
 assert lamp state directly instead of reading pixels:
 
 ```js
-__CW.state()   // { phase, lane:{station,washed,touch,grime,state}, queue, finished, actors, jets:[…] }
+__CW.state()   // { phase, turn:{open,spawned,washed,failed,queue}, cars:[{tool,stage,state,grime}], finished, actors, jets:[…] }
 __CW.info()    // { fps, nodes, seed, events, dropped }
 __CW.step(60)  // advance deterministically
 ```

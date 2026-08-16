@@ -52,19 +52,19 @@ its marker on exit, which returns the hooks to the fast path.
 
 ## How to read it
 
-- A **car** is one turn — your prompt in, Claude's turn ended.
+- A **car** is one tool call: it enters when the call starts, washes at its
+  family's stage while the call runs, and leaves clean only when it completes.
+  A failed call skips the towel and leaves dirty. Parallel calls are several
+  cars in the tunnel at once.
+- The **ticket** is the turn: Josh opens it at your prompt, Levi closes it at
+  turn end, and the closed ticket shows washed/failed counts.
 - A **washer** is one agent. Every subagent takes a **detail bay** and washes
   its own delegated task.
 - **Jets running** means a real tool call is in flight. That is the whole truth
   channel; nothing else lights them.
-- Four phases, four staff: **Josh** checks the car in while Claude is reading
-  the job (prompt open, no tool run yet); **Nick** runs the tunnel's four
-  stages — WATER POUR (read/search), SOAP & FOAM (write/edit), ROLLERS
-  (bash/MCP), AIR DRY (the exit ride after the turn ends); the car only ever
-  rolls forward, like a real conveyor — late earlier-stage work is done by a
-  touch-up crew at the car; **Jeremy** towels it and vacuums the
-  interior after the turn really ends; **Levi** says goodbye and the clean car
-  leaves.
+- Stages: WATER POUR (read/search), SOAP & FOAM (write/edit), ROLLERS
+  (bash/MCP), AIR DRY (the ride out after a call really completes). Jeremy
+  towels each finished car; Levi sees every car off.
 - Spawning agents, checklist tools (TodoWrite/Skill) and AskUserQuestion light an **add-on service** instead of
   moving the car, because they are real work that says nothing about which
   stage the turn is in.

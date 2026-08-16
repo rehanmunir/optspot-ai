@@ -120,10 +120,10 @@ body{
   </aside>
 
   <footer id="bot">
-    <span><span class="k">car</span> = one turn</span><span class="sep">·</span>
+    <span><span class="k">car</span> = one tool call</span><span class="sep">·</span>
+    <span><span class="k">ticket</span> = one turn</span><span class="sep">·</span>
     <span><span class="k">washer</span> = one agent</span><span class="sep">·</span>
-    <span><span class="k">jets on</span> = a real tool call is in flight</span><span class="sep">·</span>
-    <span>a car is never clean until the turn actually ends</span>
+    <span>a car leaves clean only when its call really completes</span>
     <span class="spacer"></span>
     <span id="f-seed"></span>
   </footer>
@@ -133,10 +133,12 @@ body{
 "use strict";
 /* OPTSPOT AI — Claude Code's own agents and tool calls, live, as a car wash.
 
-   A car is one turn. A washer is one agent. Jets run iff a real tool call is
-   in flight — that is the whole truth channel, and syncTruth() is its only
-   writer (liveN is a counter, never a boolean, so overlapping calls light a
-   lamp once and put it out once).
+   A car is ONE TOOL CALL: it enters when the call starts, washes at its
+   family's stage exactly as long as the call really runs, and leaves clean
+   only when the call completes. A failed call leaves still dirty. The turn is
+   the TICKET — Josh opens it at your prompt, Levi closes it at turn end. A
+   washer is one agent. Jets run iff a real call is in flight — that is the
+   whole truth channel, and syncTruth() is its only writer.
 
    House rules, all deliberate:
    - the car advances only on evidence, never on time; only turn.ended (or a
@@ -161,10 +163,10 @@ const C = Object.freeze({
   ROLL_SPEED: 300,                   // px/s the car eases at
   ARRIVE_EPS: 1.2, WHEEL_R: 11,
   BAY_LINGER: 2.2,
-  // The outro after a turn genuinely ended. These are the ONLY timed moves in
-  // the whole page, and they run strictly after a real terminal event — never
+  // Per-car outro dwells (towel, goodbye). The ONLY timers on the page, and
+  // each runs strictly after that car's own real completion event — never
   // during work, where a timer would be inventing progress.
-  DRY_T: 3.2, BYE_T: 3.0,
+  DRY_T: 1.2, BYE_T: 0.9,
   // grime → shine. Real completions thin it; only turn.ended clears it.
   GRIME_START: .92, GRIME_FLOOR: .24, GRIME_K: 5.0,
   // particles
@@ -335,70 +337,93 @@ function makeCarModel(opts){
     kind:  opts.kind  || KINDS[seedN % KINDS.length],
     paint: opts.paint || PAINT[(seedN >>> 3) % PAINT.length],
     label: opts.label || '',
-    station: -1,                 // -1 = at the gate, not yet in the tunnel
+    station: opts.station != null ? opts.station : -1,
     x: opts.x, targetX: opts.x,
-    grime: C.GRIME_START, washed: 0, touch: 0,
+    grime: C.GRIME_START, washed: 0,
     startedAt: Date.now(), endedAt: 0,
-    // CHECKIN · IN_WASH · DRYING · BYE · LEAVING · GONE
-    state: opts.state || 'CHECKIN',
-    unattended: !!opts.unattended,
+    // lane car: WASH · RINSE · DRYING · BYE · REJECT · LEAVING · GONE
+    state: opts.state || 'WASH',
+    tool: opts.tool || '',
     rig: null, bay: null
   };
 }
-/* Grime thins with real completed work but plateaus at GRIME_FLOOR. It reaches
-   0 in exactly one place: turn.ended / actor.stopped. Nothing here is a
-   progress estimate and it must never be read as one. */
-/* Shine is capped while washing. Only grime === 0 — which only turn.ended /
-   actor.stopped can produce — gives a fully shiny car. The gap between .45 and
-   1 is the visual difference between "work happened" and "this is finished",
-   and it must never be closed by elapsed time. */
 function shineFor(grime){
   if (grime <= 0) return '1';
   return (0.45 * (1 - grime / C.GRIME_START)).toFixed(3);
 }
+// bay cars only: their grime thins with completed calls and plateaus
 function regrime(car){
-  if (car.state !== 'CHECKIN' && car.state !== 'IN_WASH'){ car.grime = 0; return; }
   car.grime = C.GRIME_FLOOR + (C.GRIME_START - C.GRIME_FLOOR) * Math.exp(-car.washed / C.GRIME_K);
 }
 
-const LANE  = { car:null, queue:[], finished:0 };
-const WORLD = { cars:[], sparkleAt:0 };
+/* One car per call; one ticket per turn.
 
-function laneAdmit(car){
-  // The counters under each station describe the car currently in the tunnel.
-  // Carrying the previous car's tallies over would credit this one with steps
-  // it never took.
+   A car exists exactly as long as its tool call: it enters on tool.started,
+   washes at its family's stage while the call is in flight, and leaves CLEAN
+   only on tool.finished — the completion is the evidence. A failed call skips
+   the towel and leaves as dirty as it came. Parallel calls are simply several
+   cars in the tunnel at once, which is what they really are.
+
+   The ticket is the turn: Josh opens it on your prompt, the cars stream
+   through it, Levi closes it on turn.ended. Nothing here needs a high-water
+   mark or a touch-up crew any more — every car's whole life is evidenced. */
+const TURN    = { open:false, startedAt:0, spawned:0, washed:0, failed:0,
+                  queue:0, lastSummary:null };
+const SESSION = { washed:0 };
+const CARS    = {};                       // tool_use_id -> live call car
+const WORLD   = { cars:[], sparkleAt:0 }; // every mounted car, for paint()
+
+function openTurn(){
+  TURN.open = true; TURN.startedAt = Date.now();
+  TURN.spawned = 0; TURN.washed = 0; TURN.failed = 0;
+  // stage counters describe THIS ticket
   for (const st of STATIONS){ st.passes = 0; st.ms = 0; }
-  LANE.car = car; WORLD.cars.push(car);
-  car.x = ZONES.CHECKIN.cx; car.targetX = car.x; car.state = 'CHECKIN';
-  SCENE.mountLaneCar(car);
+  HUD.dirty = true;
 }
 
-/* The outro. `turn.ended` really fired, so the work is over and what follows
-   is the finish, not a claim about progress: the car rides the conveyor out
-   through AIR DRY (the blowers fire as it passes — powered by the terminal
-   event, exactly like Jeremy and Levi), then Jeremy towels it and does the
-   interior, and Levi reads the ticket back. The ride out is distance/speed;
-   the two dwells are the page's only timers. */
-function laneRelease(){
-  const car = LANE.car; if (!car) return;
-  car.state = 'AIRDRY'; car.grime = 0; car.endedAt = Date.now();
-  car.targetX = STATIONS[3].cx;
-  WORLD.sparkleAt = CLOCK.now();
-  LANE.finished++; LANE.car = null;
+function closeTurn(){
+  if (!TURN.open) return;
+  TURN.open = false;
+  // turn.ended is terminal evidence: any call still open at this instant is
+  // over as far as the stream can ever know, so its car finishes clean.
+  for (const tid in CARS) finishCallCar(tid, true, 0);
+  TURN.lastSummary = { washed: TURN.washed, failed: TURN.failed,
+                       secs: Math.max(0, Math.round((Date.now() - TURN.startedAt) / 1000)) };
+  if (TURN.queue > 0){ TURN.queue--; openTurn(); }
+  HUD.dirty = true;
 }
-function outroTimers(car){
-  if (car.__outro) return; car.__outro = true;
-  setTimeout(() => {
-    if (car.state === 'DRYING') car.state = 'BYE';
-    HUD.dirty = true;
-    setTimeout(() => {
-      if (car.state === 'BYE') car.state = 'LEAVING';
-      const nxt = LANE.queue.shift();
-      if (nxt && !LANE.car) laneAdmit(makeCarModel({ label: nxt.label }));
-      HUD.dirty = true;
-    }, C.BYE_T * 1000);
-  }, C.DRY_T * 1000);
+
+function spawnCallCar(tid, tool, si){
+  if (!TURN.open) openTurn();               // connected mid-turn: still true
+  const car = makeCarModel({ x: 46, station: si, tool });
+  car.callId = tid;
+  CARS[tid] = car; WORLD.cars.push(car); TURN.spawned++;
+  SCENE.mountLaneCar(car);
+  HUD.dirty = true;
+  return car;
+}
+
+function finishCallCar(tid, ok, ms){
+  const car = CARS[tid]; if (!car) return;
+  delete CARS[tid];
+  car.endedAt = Date.now();
+  if (ok){
+    car.grime = 0;                          // ITS call completed — that is the clean
+    car.state = 'RINSE';                    // ride out through the blowers
+    TURN.washed++; SESSION.washed++;
+    WORLD.sparkleAt = CLOCK.now();
+  } else {
+    car.state = 'REJECT';                   // no towel for a failed job
+    TURN.failed++;
+  }
+  HUD.dirty = true;
+}
+
+// n-th car currently in `state` (or at stage `st`), for queueing offsets
+function carSlot(car, pred){
+  let k = 0;
+  for (const o of WORLD.cars){ if (o === car) break; if (pred(o)) k++; }
+  return k;
 }
 
 
@@ -1036,17 +1061,6 @@ const FEED = {
     }, C.BAY_LINGER * 1000);
   },
 
-  /* The main session's car. Created lazily so connecting mid-turn still shows
-     the truth: there IS a car in the wash, we just did not see it arrive. */
-  ensureLaneCar(unattended){
-    if (LANE.car) return LANE.car;
-    const car = makeCarModel({ x:ZONES.CHECKIN.cx, unattended:!!unattended });
-    laneAdmit(car);
-    if (unattended) car.state = 'IN_WASH';
-    HUD.dirty = true;
-    return car;
-  },
-
   apply(e){
     const id = e.a;
     switch (e.t){
@@ -1054,15 +1068,19 @@ const FEED = {
         if (e.d.resync){
           for (const k in this.actors){ const r = this.actors[k]; if (r.bay != null) this.closeBay(r, true); }
           this.actors = {}; this.main = null;
+          // we lost track — clear the forecourt without celebrating anything
+          for (const c of WORLD.cars.slice()){ if (!c.bay){ SCENE.unmountLaneCar(c);
+            WORLD.cars.splice(WORLD.cars.indexOf(c), 1); } }
+          for (const k in CARS) delete CARS[k];
+          TURN.open = false; TURN.queue = 0;
         }
         for (const s of e.d.actors || []){
           const rec = this.claim(s.id, s.kind, s.agent_type, s.label);
           for (const lt of s.live || []){ rec.tools[lt.id] = lt.tool; rec.liveN++; }
-          if (rec.kind === 'main' && rec.liveN > 0){
-            const car = this.ensureLaneCar(true);
+          if (rec.kind === 'main'){
             for (const lt of s.live || []){
               const si = stationFor(lt.tool);
-              if (si >= 0){ if (si > car.station) car.station = si; car.state = 'IN_WASH'; }
+              if (si >= 0 && !CARS[lt.id]) spawnCallCar(lt.id, lt.tool, si);
             }
           }
         }
@@ -1085,9 +1103,7 @@ const FEED = {
         delete this.actors[id];
         if (this.main === id){
           this.main = null;
-          // actor.stopped IS a terminal event: without this, a lane car would
-          // sit claiming "Claude is thinking" forever after its actor is gone.
-          laneRelease();
+          closeTurn();          // actor.stopped IS a terminal event
         }
         HUD.dirty = true; break;
       }
@@ -1104,15 +1120,8 @@ const FEED = {
 
         const si = stationFor(e.d.tool);
         if (rec.kind === 'main'){
-          const car = this.ensureLaneCar(true);
-          if (si >= 0){
-            // A conveyor never reverses. The car holds its furthest evidenced
-            // stage; an earlier-family call is real work carried out AT the
-            // car by that stage's washer, and the ticket counts it.
-            if (si > car.station) car.station = si;
-            else if (si < car.station) car.touch++;
-            car.state = 'IN_WASH';
-          } else ADDONS_hit(addonFor(e.d.tool).id);
+          if (si >= 0) spawnCallCar(e.d.id, e.d.tool, si);
+          else ADDONS_hit(addonFor(e.d.tool).id);
         } else {
           if (si < 0) ADDONS_hit(addonFor(e.d.tool).id);
           else if (rec.bay != null) rec.step = si;
@@ -1133,25 +1142,25 @@ const FEED = {
           // Per-step counters, from the harness's own durations. These are the
           // only numbers on the tunnel, and every one of them is measured.
           if (fin >= 0 && rec.kind === 'main'){ STATIONS[fin].passes++; STATIONS[fin].ms += (e.d.ms || 0); }
-          if (rec.kind === 'main' && LANE.car){ LANE.car.washed++; regrime(LANE.car); }
           if (rec.kind === 'subagent' && rec.bay != null){
             const cm = SCENE.bayRigs[rec.bay].carModel;
             if (cm){ cm.washed++; regrime(cm); }
           }
         }
+        if (rec.kind === 'main') finishCallCar(e.d.id, ok, e.d.ms || 0);
         HUD.dirty = true; break;
       }
 
       case 'prompt.submitted': {
         ACT.note('you', 'prompt', e.d.chars + ' chars');
-        if (LANE.car) LANE.queue.push({ label:'', at:Date.now() });
-        else laneAdmit(makeCarModel({}));
+        if (TURN.open) TURN.queue++;      // next customer takes a number
+        else openTurn();
         HUD.dirty = true; break;
       }
 
       case 'turn.ended':
         ACT.note('claude', 'turn ended', '');
-        laneRelease();                    // the ONLY place a lane car becomes clean
+        closeTurn();
         HUD.dirty = true; break;
 
       case 'session.started':
@@ -1194,34 +1203,26 @@ const ACT = {
 };
 
 /* ── THE TRUTH CHANNEL ───────────────────────────────────────────── */
-/* INVARIANT: a station's jets run iff an unmatched tool.started exists for the
-   actor that owns it. This is the ONLY writer of jet/lamp state.
-
-   Refined for the granular tunnel: a station lights per IN-FLIGHT CALL, not
-   per car position. Claude frequently runs several tools at once, and each of
-   those calls is genuinely a different step being worked on the same car — so
-   several stations light together and a helper appears at each. That is the
-   crew, and every member of it is standing on evidence. The car itself sits at
-   the most recent step, which is a separate fact. */
+/* INVARIANT: a station's jets run iff an unmatched tool.started of its
+   family exists — which, in the per-call model, is exactly "a car of that
+   stage is in the tunnel". The cars ARE the truth channel now: one car per
+   in-flight call, so lamps, machinery and cars can never disagree. This
+   function is still the only writer of lamp/fx state. */
 function syncTruth(){
-  const main = FEED.main ? FEED.actors[FEED.main] : null;
-  const car  = LANE.car;
+  const live    = Object.values(CARS);
+  const rinsing = WORLD.cars.find(c => c.state === 'RINSE');
+  const drying  = WORLD.cars.find(c => c.state === 'DRYING');
+  const leaving = WORLD.cars.find(c => c.state === 'BYE' || c.state === 'REJECT');
 
-  /* Which phase owns the moment. Exactly one, and each from a real signal:
-     Josh has it while a turn is open and nothing has been touched yet; Nick
-     while a call is in flight; Jeremy and Levi only after turn.ended. */
-  const outro  = WORLD.cars.find(c => c.state === 'DRYING' || c.state === 'BYE');
-  const airing = WORLD.cars.find(c => c.state === 'AIRDRY');
-  const phase  = outro ? (outro.state === 'DRYING' ? 'DRY' : 'BYE')
-               : airing                            ? 'TUNNEL'     // the exit ride
-               : car && main && main.liveN > 0     ? 'TUNNEL'
-               : car && car.state === 'CHECKIN'    ? 'CHECKIN'    // not touched a tool yet
-               : car                               ? 'THINKING'   // mid-turn pause
-               :                                     'IDLE';
+  const phase = live.length || rinsing ? 'TUNNEL'
+              : TURN.open ? (TURN.spawned ? 'THINKING' : 'CHECKIN')
+              : 'IDLE';
   WORLD.phase = phase;
 
   for (const r of SCENE.zoneRigs){
-    const on = phase === r.z.id;
+    const on = r.z.id === 'CHECKIN' ? (phase === 'CHECKIN' || phase === 'THINKING')
+             : r.z.id === 'DRY'     ? !!drying
+             :                        !!leaving;
     r.live = on;
     setA(r.lamp, 'fill', on ? '#ffc23a' : '#241e19');
     setA(r.halo, 'opacity', on ? '.30' : '0');
@@ -1232,24 +1233,16 @@ function syncTruth(){
   }
   setA(SCENE.tunnelBanner, 'opacity', phase === 'TUNNEL' ? '1' : '.45');
 
-  // how many in-flight calls of the main actor land on each station
   const busyAt = new Array(STATIONS.length).fill(0);
-  if (main && car && car.state === 'IN_WASH'){
-    for (const id in main.tools){
-      const si = stationFor(main.tools[id]);
-      if (si >= 0) busyAt[si]++;
-    }
-  }
+  for (const c of live) if (c.station >= 0) busyAt[c.station]++;
 
   for (const r of SCENE.stationRigs){
     const i3 = r.st.i === 3;
-    const on = i3 ? !!airing : busyAt[r.st.i] > 0;
+    const on = i3 ? !!rinsing : busyAt[r.st.i] > 0;
     r.live = on;
-    // Machinery is sensor-driven, like a real tunnel: the arch runs only with
-    // the car under it. A lit lamp with the car elsewhere means the touch-up
-    // crew has taken that stage's work to the car instead.
-    r.fxOn = i3 ? !!airing
-           : !!(on && car && car.state === 'IN_WASH' && car.station === r.st.i);
+    // the car under the arch IS the in-flight call, so machinery and lamp
+    // agree by construction
+    r.fxOn = on;
     setA(r.lamp, 'fill', on ? '#ffc23a' : '#241e19');
     setA(r.halo, 'opacity', on ? '.30' : '0');
     setA(r.pool, 'opacity', on ? '.85' : '0');
@@ -1311,17 +1304,25 @@ const ENGINE = {
     HUD.maybeRender();
   },
   targetFor(c){
-    // Two fast turns can put two cars in the same outro state; stagger them
-    // so neither hides the other.
-    let slot = 0;
-    for (const o of WORLD.cars){ if (o === c) break; if (o.state === c.state) slot++; }
-    const off = slot * -74;
-    return c.state === 'LEAVING' ? C.PARK_X
-         : c.state === 'BYE'      ? ZONES.BYE.cx + off
-         : c.state === 'DRYING'   ? ZONES.DRY.cx + off
-         : c.state === 'AIRDRY'   ? STATIONS[3].cx + off
-         : c.station >= 0         ? STATIONS[c.station].cx
-         :                          ZONES.CHECKIN.cx;
+    // several cars can share a state or a stage; queue them, never stack them
+    const off = k => k * -84;
+    if (c.state === 'LEAVING') return C.PARK_X;
+    if (c.state === 'BYE' || c.state === 'REJECT')
+      return ZONES.BYE.cx + off(carSlot(c, o => o.state === 'BYE' || o.state === 'REJECT'));
+    if (c.state === 'DRYING')
+      return ZONES.DRY.cx + off(carSlot(c, o => o.state === 'DRYING'));
+    if (c.state === 'RINSE') return STATIONS[3].cx;
+    if (c.state === 'WASH' && c.station >= 0)
+      return STATIONS[c.station].cx
+           + off(carSlot(c, o => o.state === 'WASH' && o.station === c.station));
+    return ZONES.CHECKIN.cx;
+  },
+  // per-car outro: the dwell starts only after THIS car's real completion
+  carLater(c, from, to, secs){
+    const flag = '__t_' + from;
+    if (c[flag]) return; c[flag] = true;
+    setTimeout(() => { if (c.state === from) c.state = to; HUD.dirty = true; },
+               secs * 1000);
   },
   paint(snap, dt){
     for (let i = WORLD.cars.length - 1; i >= 0; i--){
@@ -1344,14 +1345,17 @@ const ENGINE = {
           for (const w of c.rig.wheels) setA(w, 'transform', 'rotate(' + ((c.x * 3.2) % 360).toFixed(0) + ')');
         setA(c.rig.plate, 'opacity', c.state === 'LEAVING' ? '0' : '1');
         c.rig.plateText.textContent =
-            c.state === 'CHECKIN' ? 'CHECKING IN'
-          : c.state === 'AIRDRY'  ? 'AIR DRY'
-          : c.state === 'DRYING'  ? 'TOWEL & INTERIOR'
-          : c.state === 'BYE'     ? 'ALL DONE'
-          : c.washed ? c.washed + ' call' + (c.washed === 1 ? '' : 's') : 'IN WASH';
+            c.state === 'REJECT' ? '✗ ' + (c.tool || 'failed')
+          : c.state === 'DRYING' ? 'TOWEL'
+          : c.state === 'BYE'    ? 'ALL DONE'
+          :                        (c.tool || 'IN WASH');
       }
-      if (c.state === 'AIRDRY' && Math.abs(c.targetX - c.x) <= C.ARRIVE_EPS){
-        c.state = 'DRYING'; c.targetX = ZONES.DRY.cx; outroTimers(c);
+      const arrived = Math.abs(c.targetX - c.x) <= C.ARRIVE_EPS;
+      if (arrived){
+        if (c.state === 'RINSE'){ c.state = 'DRYING'; }
+        else if (c.state === 'DRYING') this.carLater(c, 'DRYING', 'BYE', C.DRY_T);
+        else if (c.state === 'BYE')    this.carLater(c, 'BYE', 'LEAVING', C.BYE_T);
+        else if (c.state === 'REJECT') this.carLater(c, 'REJECT', 'LEAVING', C.BYE_T);
       }
       if (c.state === 'LEAVING' && c.x >= C.PARK_X - 1){
         c.state = 'GONE'; SCENE.unmountLaneCar(c); WORLD.cars.splice(i, 1);
@@ -1382,20 +1386,13 @@ const ENGINE = {
     this.paint(false, dt);
 
     /* ── the helpers ──
-       One washer per live stage. If the conveyor has carried the car past
-       their station they take the work TO the car — hand tools at the
-       bodywork — because a real conveyor never runs backwards. No idle
-       bystanders: a helper is on stage only while a real call of their
-       family is in flight. */
-    const carW = LANE.car;
-    const airW = WORLD.cars.find(c2 => c2.state === 'AIRDRY');
-    let backIdx = 0;
+       One washer per live stage, at their own station — the cars come to
+       them now. No idle bystanders: a helper is on stage only while a real
+       call of their family is in flight. */
+    const airW = WORLD.cars.find(c2 => c2.state === 'RINSE');
     for (const r of SCENE.stationRigs){
       if (!r.live) continue;
-      let hx = r.st.cx - 96;
-      if (r.st.i === 3 && airW) hx = airW.x - 96;
-      else if (r.st.i < 3 && carW && carW.state === 'IN_WASH' && r.st.i < carW.station)
-        hx = carW.x - 96 - (backIdx++) * 34;      // touch-up crew lines up at the car
+      const hx = (r.st.i === 3 && airW) ? airW.x - 96 : r.st.cx - 96;
       setA(r.wash.g, 'transform', 'translate(' + hx.toFixed(1) + ',' + C.LANE_Y + ')');
       const sw = REDUCED.matches ? 0 : Math.sin(t * 9 + r.st.i * 1.3) * 24;
       setA(r.wash.arm, 'transform', 'translate(6,17) rotate(' + sw.toFixed(1) + ')');
@@ -1408,21 +1405,18 @@ const ENGINE = {
       setA(r.wash.arm, 'transform', 'translate(6,17) rotate(' + sw.toFixed(1) + ')');
     }
 
-    /* wash layers on the lane car — they move ONLY while a matching stage is
-       genuinely live, or in the outro of a turn that really ended */
-    const lc = LANE.car;
-    if (lc && lc.state === 'IN_WASH'){
-      const live = i => SCENE.stationRigs[i] && SCENE.stationRigs[i].live;
-      if (live(0)){ lc.wet   = Math.min(1, (lc.wet   || 0) + dt * 1.4);
-                    lc.foamL = Math.max(0, (lc.foamL || 0) - dt * .5); }
-      if (live(1)){ lc.foamL = Math.min(1, (lc.foamL || 0) + dt * 1.1);
-                    lc.wet   = Math.min(1, (lc.wet   || 0) + dt * .3); }
-      if (live(2)){ lc.foamL = Math.max(0, (lc.foamL || 0) - dt * 1.5);
-                    lc.wet   = Math.min(1, (lc.wet   || 0) + dt * .5); }
-      if (live(3)){ lc.wet   = Math.max(0, (lc.wet   || 0) - dt * 1.2); }
-    }
+    /* wash layers, per car — each moves ONLY while ITS call is genuinely in
+       flight at that stage, or in the outro of its own real completion */
     for (const c of WORLD.cars){
-      if (c.state === 'AIRDRY'){
+      if (c.bay) continue;
+      if (c.state === 'WASH'){
+        if (c.station === 0){ c.wet   = Math.min(1, (c.wet   || 0) + dt * 1.4); }
+        if (c.station === 1){ c.foamL = Math.min(1, (c.foamL || 0) + dt * 1.1);
+                              c.wet   = Math.min(1, (c.wet   || 0) + dt * .3); }
+        if (c.station === 2){ c.foamL = Math.max(0, (c.foamL || 0) - dt * 1.5);
+                              c.wet   = Math.min(1, (c.wet   || 0) + dt * .5); }
+      }
+      if (c.state === 'RINSE'){
         c.wet   = Math.max(0, (c.wet   || 0) - dt * 1.6);
         c.foamL = Math.max(0, (c.foamL || 0) - dt * 1.2);
       }
@@ -1457,13 +1451,14 @@ const ENGINE = {
       }
     }
 
-    /* the thought bubble follows the car whenever nothing is in flight */
+    /* the thought bubble hangs over Josh's podium whenever the ticket is
+       open and no call is in flight */
     const th = SCENE.thought, ph = WORLD.phase;
     const thinking = ph === 'CHECKIN' || ph === 'THINKING';
     setA(th.g, 'opacity', thinking ? '1' : '0');
-    if (thinking && LANE.car){
-      setA(th.g, 'transform', 'translate(' + LANE.car.x.toFixed(1) + ',' +
-           (C.LANE_Y - 152).toFixed(1) + ')');   // clear of the top roller
+    if (thinking){
+      setA(th.g, 'transform', 'translate(' + ZONES.CHECKIN.cx.toFixed(1) + ',' +
+           (C.LANE_Y - 152).toFixed(1) + ')');
       th.cap.textContent = ph === 'CHECKIN' ? 'reading the job' : 'no call in flight';
       if (!REDUCED.matches)
         th.dots.forEach((d, k) =>
@@ -1476,21 +1471,14 @@ const ENGINE = {
       const step = 1 / C.EMIT_HZ;
       while (this.acc >= step){
         this.acc -= step;
-        const carE = LANE.car;
-        const airI = WORLD.cars.find(c2 => c2.state === 'AIRDRY');
         for (const r of SCENE.stationRigs){
           if (!r.live) continue;
           const st = r.st;
-          if (st.i === 3){                        // blowers ride the exiting car
-            if (airI){ P.spawn(airI.x - 72, C.LANE_Y - rnd(18,84), 'air');
-                       P.spawn(airI.x + rnd(-50,50), C.LANE_Y - rnd(28,68), 'mist'); }
-            continue;
-          }
-          const touch = carE && carE.state === 'IN_WASH' && carE.station > st.i;
-          if (touch){                             // hand tools at the car, not the arch
-            if (st.jet === 'pour')  P.spawn(carE.x + rnd(-46,46), C.LANE_Y - rnd(26,72), 'mist');
-            if (st.jet === 'foam')  P.spawn(carE.x + rnd(-50,50), C.LANE_Y - rnd(30,80), 'foam');
-            if (st.jet === 'scrub') P.spawn(carE.x + rnd(-50,50), C.LANE_Y - rnd(24,70), 'fleck');
+          if (st.i === 3){                        // blowers ride every rinsing car
+            for (const c of WORLD.cars) if (c.state === 'RINSE'){
+              P.spawn(c.x - 72, C.LANE_Y - rnd(18,84), 'air');
+              P.spawn(c.x + rnd(-50,50), C.LANE_Y - rnd(28,68), 'mist');
+            }
             continue;
           }
           const cx = st.cx;
@@ -1502,6 +1490,11 @@ const ENGINE = {
           if (st.jet === 'foam')  P.spawn(cx + rnd(-72,72), C.LANE_Y - rnd(50,108), 'foam');
           if (st.jet === 'scrub'){ P.spawn(cx + rnd(-84,84), C.LANE_Y - rnd(28,96), 'fleck');
                                    P.spawn(cx + rnd(-60,60), C.LANE_Y - rnd(38,84), 'foam'); }
+          // queued cars behind the arch get the hand-spray treatment
+          for (const c of WORLD.cars)
+            if (c.state === 'WASH' && c.station === st.i && Math.abs(c.x - cx) > 60)
+              P.spawn(c.x + rnd(-40,40), C.LANE_Y - rnd(26,72),
+                      st.jet === 'foam' ? 'foam' : st.jet === 'scrub' ? 'fleck' : 'mist');
         }
         for (const rig of SCENE.bayRigs){
           if (!rig.live) continue;
@@ -1575,13 +1568,13 @@ const HUD = {
     const e = this.els;
     let crew = 0, busy = 0;
     for (const k in FEED.actors){ crew++; if (FEED.actors[k].liveN > 0) busy++; }
-    e.wash.textContent  = String(busy);
+    e.wash.textContent  = String(Object.keys(CARS).length);
     e.crew.textContent  = String(crew);
-    e.queue.textContent = String(LANE.queue.length);
-    e.done.textContent  = String(LANE.finished);
+    e.queue.textContent = String(TURN.queue);
+    e.done.textContent  = String(SESSION.washed);
     if (SCENE.queueText)
-      SCENE.queueText.textContent = LANE.queue.length
-        ? LANE.queue.length + ' car' + (LANE.queue.length === 1 ? '' : 's') + ' waiting'
+      SCENE.queueText.textContent = TURN.queue
+        ? TURN.queue + ' ticket' + (TURN.queue === 1 ? '' : 's') + ' waiting'
         : '';
 
     if (DEBUG)
@@ -1593,55 +1586,55 @@ const HUD = {
     e.connT.textContent = FEED.demo ? 'demo — not connected to Claude'
                         : FEED.connected ? 'live' : 'reconnecting…';
 
-    /* ticket */
+    /* the ticket board */
     const T = SCENE.ticket;
     if (T){
-      const car = LANE.car;
-      if (car){
-        const secs = Math.floor((Date.now() - car.startedAt) / 1000);
-        const st = car.station >= 0 ? STATIONS[car.station] : null;
-        const ph = WORLD.phase;
-        T.l1.textContent =
-            ph === 'CHECKIN'  ? 'CHECKING IN — Josh'
-          : ph === 'THINKING' ? 'PAUSED IN THE TUNNEL — Nick'
-          : st ? 'STAGE ' + (st.i + 1) + ' OF ' + STATIONS.length + ' — ' + st.n + ' — Nick'
-               : 'IN THE TUNNEL — Nick';
-        T.l2.textContent =
-            (ph === 'CHECKIN'  ? 'reading the job before touching a tool'
-           : ph === 'THINKING' ? 'no tool call in flight — Claude is thinking'
-           : st ? st.sub : 'working')
-          + '   ·   ' + car.washed + ' completed call' + (car.washed === 1 ? '' : 's')
-          + (car.touch ? '   ·   ' + car.touch + ' touch-up'
-                        + (car.touch === 1 ? '' : 's') + ' at the car' : '');
-        T.l3.textContent = 'elapsed ' + Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')
-                         + (car.unattended ? '   ·   already under way when the wash opened' : '');
-        T.l4.textContent = 'like a real conveyor the car only rolls forward — earlier-stage work '
-                         + 'is a touch-up crew at the car, and no percentage is shown because none can be known';
+      const liveCars = Object.values(CARS);
+      const outroCar = WORLD.cars.find(c => !c.bay && c.state !== 'WASH' && c.state !== 'GONE');
+      if (TURN.open){
+        const secs = Math.floor((Date.now() - TURN.startedAt) / 1000);
+        const occ = STATIONS.slice(0, 3)
+          .map(st => { const n = liveCars.filter(c => c.station === st.i).length;
+                       return n ? st.n.toLowerCase() + ' ' + n : null; })
+          .filter(Boolean).join(' · ');
+        T.l1.textContent = liveCars.length
+            ? 'WASHING — ' + liveCars.length + ' car' + (liveCars.length === 1 ? '' : 's')
+              + ' in the tunnel — Nick'
+          : TURN.spawned ? 'PAUSED — Claude is thinking'
+          :                'CHECKING IN — Josh';
+        T.l2.textContent = liveCars.length ? occ
+          : TURN.spawned ? 'no call in flight — the next car pulls in when one starts'
+          :                'reading the job before touching a tool';
+        T.l3.textContent = 'this ticket: ' + TURN.washed + ' washed'
+          + (TURN.failed ? ' · ' + TURN.failed + ' failed' : '')
+          + '   ·   elapsed ' + Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')
+          + (TURN.queue ? '   ·   ' + TURN.queue + ' waiting' : '');
+        T.l4.textContent = 'every car is one real tool call — in when it starts, out clean only '
+                         + 'when it completes; failed calls leave dirty, and there is no percentage '
+                         + 'because none can be known';
+      } else if (outroCar){
+        T.l1.textContent = 'FINISHING UP — Jeremy & Levi';
+        T.l2.textContent = 'the last cars ride out: towel, interior, goodbye';
+        const sm = TURN.lastSummary;
+        T.l3.textContent = sm ? 'ticket: ' + sm.washed + ' washed'
+          + (sm.failed ? ' · ' + sm.failed + ' failed' : '')
+          + ' · took ' + Math.floor(sm.secs / 60) + ':' + String(sm.secs % 60).padStart(2, '0') : '';
+        T.l4.textContent = '';
+      } else if (TURN.lastSummary){
+        const sm = TURN.lastSummary;
+        T.l1.textContent = 'TICKET CLOSED — Levi';
+        T.l2.textContent = sm.washed + ' car' + (sm.washed === 1 ? '' : 's') + ' washed'
+          + (sm.failed ? ' · ' + sm.failed + ' left dirty' : '')
+          + ' · took ' + Math.floor(sm.secs / 60) + ':' + String(sm.secs % 60).padStart(2, '0');
+        T.l3.textContent = SESSION.washed + ' washed this session';
+        T.l4.textContent = 'the final notes stay with the customer: the viewer never receives '
+                         + "Claude's reply, only that the turn ended";
       } else {
-        // the outro: the turn really ended, and Jeremy then Levi finish it off
-        const out = WORLD.cars.find(c => c.state === 'DRYING' || c.state === 'BYE');
-        if (out){
-          const secs = Math.max(0, Math.round((out.endedAt - out.startedAt) / 1000));
-          const drying = out.state === 'DRYING';
-          T.l1.textContent = drying ? 'TOWEL & INTERIOR — Jeremy' : 'GOODBYE — Levi';
-          T.l2.textContent = drying
-            ? 'the turn ended — towel dry, vacuum the inside'
-            : 'ticket handed back — thanks, see you next time';
-          T.l3.textContent = out.washed + ' call' + (out.washed === 1 ? '' : 's') + ' completed'
-                           + (out.touch ? '   ·   ' + out.touch + ' touch-up'
-                                        + (out.touch === 1 ? '' : 's') : '')
-                           + '   ·   took ' + Math.floor(secs / 60) + ':'
-                           + String(secs % 60).padStart(2, '0');
-          T.l4.textContent = drying ? ''
-            : 'the final notes stay with the customer: the viewer never receives '
-            + "Claude's reply, only that the turn ended";
-        } else {
-          T.l1.textContent = LANE.finished ? 'FORECOURT CLEAR' : 'NO CAR YET';
-          T.l2.textContent = LANE.finished ? LANE.finished + ' car' + (LANE.finished === 1 ? '' : 's') + ' finished this session' : '';
-          T.l3.textContent = FEED.demo ? 'demo mode — canned traffic, no Claude attached'
-                                       : 'ask Claude to do something and a car will pull in';
-          T.l4.textContent = '';
-        }
+        T.l1.textContent = SESSION.washed ? 'FORECOURT CLEAR' : 'NO CAR YET';
+        T.l2.textContent = SESSION.washed ? SESSION.washed + ' car' + (SESSION.washed === 1 ? '' : 's') + ' washed this session' : '';
+        T.l3.textContent = FEED.demo ? 'demo mode — canned traffic, no Claude attached'
+                                     : 'ask Claude to do something and a car will pull in';
+        T.l4.textContent = '';
       }
     }
 
@@ -1749,14 +1742,16 @@ window.__CW = {
   info(){ return { fps: ENGINE.fps, nodes: document.getElementsByTagName('*').length,
                    seed: SEED, events: FEED.lastSeq, dropped: FEED.dropped }; },
   state(){ return { phase: WORLD.phase,
-                    lane: LANE.car && { station: LANE.car.station, washed: LANE.car.washed,
-                                        touch: LANE.car.touch,
-                                        grime: +LANE.car.grime.toFixed(3), state: LANE.car.state },
-                    queue: LANE.queue.length, finished: LANE.finished,
+                    turn: { open: TURN.open, spawned: TURN.spawned, washed: TURN.washed,
+                            failed: TURN.failed, queue: TURN.queue },
+                    cars: WORLD.cars.filter(c => !c.bay)
+                          .map(c => ({ tool: c.tool, stage: c.station, state: c.state,
+                                       grime: +c.grime.toFixed(2) })),
+                    finished: SESSION.washed,
                     actors: Object.keys(FEED.actors).length,
                     jets: SCENE.stationRigs.map(r => r.live)
                           .concat(SCENE.bayRigs.map(r => !!r.live)) }; },
-  FEED, LANE, SCENE, STATIONS, BAYS, C, ACT
+  FEED, TURN, CARS, SESSION, SCENE, STATIONS, BAYS, C, ACT
 };
 
 /* ── boot ──────────────────────────────────────────────────────────────── */
