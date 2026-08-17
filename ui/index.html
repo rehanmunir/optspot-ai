@@ -1446,6 +1446,18 @@ const FEED = {
     ss.lastAt = Date.now();
     if (e.t === 'session.started') ss.label = (e.d && e.d.cwd_name) || ss.label;
 
+    // An order's own session is by definition not the focused one, so this
+    // has to be answered ABOVE the guard below or it would never be read.
+    if (e.t === 'wash.order'){
+      const want = (e.d && e.d.sid) || sid;
+      sessOf(want);
+      setFocus(want); FOCUS_PINNED = false;
+      if (HUD.els.sess) HUD.els.sess.classList.remove('pinned');
+      ACT.note('you', 'order', 'at the counter');
+      HUD.dirty = true; HUD.sessDirty = true;
+      return;
+    }
+
     if (FOCUS == null) setFocus(sid);
     else if (sid !== FOCUS && !FOCUS_PINNED && !Object.keys(CARS).length)
       setFocus(sid);                       // follow the newest, never mid-wash

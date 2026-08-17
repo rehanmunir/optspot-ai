@@ -140,6 +140,12 @@ against the CLI's own accepted values (`fable|opus|sonnet|haiku`,
 `low|medium|high|xhigh|max`) before it can reach argv — a value that is not on
 those lists is dropped, never passed through.
 
+Because an order is its own session, the wash would otherwise be looking
+somewhere else while it ran. The server notices the first session to appear
+after an order is placed and emits `wash.order`; the page answers it *above*
+the focus guard — an order's session is by definition not the focused one, so
+handling it inside the guard would mean never reading it at all.
+
 It runs your prompt as a real local `claude -p` session, so its reply —
 Claude's actual words — does come back to the page. That is the counter's
 whole purpose, and it is the one exception to everything above: the hook

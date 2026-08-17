@@ -205,6 +205,14 @@ def translate(p):
     tpath   = p.get("transcript_path") or ""
     _counters["in"] += 1
 
+    # first sighting of the session an order just spawned -> tell the page
+    if _ask_await[0] and session:
+        with _lock:
+            fresh = not any(k[0] == session for k in _actors)
+        if fresh:
+            _ask_await[0] = False
+            emit("wash.order", session, "main", {"sid": session})
+
     # The main session is never announced by any hook — synthesise it so the
     # browser never sees an event for an actor it does not know.
     # cwd basename and agent_type arrive over a socket: _clean() them like
@@ -288,6 +296,11 @@ def translate(p):
 
 # ── the counter ────────────────────────────────────────────────────────────
 _ask_busy = threading.Lock()
+# An order spawns its OWN Claude session, so the wash — which shows one
+# session — would otherwise be looking somewhere else while your order runs.
+# The first session that appears after an order is placed is that order's, and
+# the page is told to follow it.
+_ask_await = [False]
 
 
 # Exactly what `claude --help` accepts. Anything else never reaches argv.
@@ -413,7 +426,9 @@ class Handler(BaseHTTPRequestHandler):
                               "application/json", 409)
         try:
             t0 = time.time()
+            _ask_await[0] = True
             ok, text = run_claude(prompt, model, effort)
+            _ask_await[0] = False
             ms = int((time.time() - t0) * 1000)
         finally:
             _ask_busy.release()

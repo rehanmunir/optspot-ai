@@ -47,6 +47,8 @@ Enter (Shift+Enter for a new line). Claude runs it right there — you watch the
 cars while it works, and the answer lands in the panel underneath, kept with
 what you asked so you can read them together. Pick a **model** and an
 **effort level** beside the ask button if you want; both are remembered.
+An order runs as its own Claude session, so the wash turns to watch it while
+it works, then drifts back to yours when it's done.
 
 **4. Close it** when you're done:
 
