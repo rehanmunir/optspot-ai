@@ -30,6 +30,7 @@ SECRETS = [
     "SUPERSECRET", "api.internal.example.com/v1/keys",   # url query + path
     "hunter2",                                           # prompt text
     "the answer is 42",                                  # an agent's own output
+    "wJalrXUtnFEMIsecret",                               # a secret in `VAR=… cmd`
 ]
 
 PAYLOADS = [
@@ -41,6 +42,11 @@ PAYLOADS = [
      "tool_input": {"command": "git status --porcelain --untracked=all /etc/passwd"}},
     {"hook_event_name": "PreToolUse", "session_id": RUN, "tool_name": "Read",
      "tool_use_id": RUN + "-2", "tool_input": {"file_path": "/Users/x/.ssh/id_rsa"}},
+    # people put secrets in leading env assignments; the "first word" rule
+    # used to ship them verbatim
+    {"hook_event_name": "PreToolUse", "session_id": RUN, "tool_name": "Bash",
+     "tool_use_id": RUN + "-5",
+     "tool_input": {"command": "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIsecret aws s3 ls"}},
     {"hook_event_name": "PreToolUse", "session_id": RUN, "tool_name": "Grep",
      "tool_use_id": RUN + "-3", "tool_input": {"pattern": "AWS_SECRET_ACCESS_KEY"}},
     {"hook_event_name": "PreToolUse", "session_id": RUN, "tool_name": "WebFetch",
@@ -100,7 +106,7 @@ def main():
 
     # and prove the useful, harmless derivations DID survive
     kept = [k for k in ("git status", "(private file)", "pattern (21 chars)",
-                        "api.internal.example.com") if k in stream]
+                        "api.internal.example.com", "aws") if k in stream]
 
     if bad:
         print("\nFAIL")
@@ -108,7 +114,7 @@ def main():
             print("  ✗ " + b)
         sys.exit(1)
     expect = ("git status", "(private file)", "pattern (21 chars)",
-              "api.internal.example.com")
+              "api.internal.example.com", "aws")
     missing = [k for k in expect if k not in kept]
     if missing:
         # Nothing leaked, but nothing arrived either — the run proved nothing.

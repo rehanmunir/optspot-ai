@@ -45,7 +45,8 @@ answer appears underneath.
 
 The hooks go back to costing nothing (~1 ms each, doing no work at all).
 
-Uninstall any time with `claude plugin disable agent-carwash`.
+To switch it off for a while: `claude plugin disable agent-carwash@optspot`.
+To remove it for good: `claude plugin uninstall agent-carwash@optspot`.
 
 ## What you're watching
 
@@ -57,33 +58,47 @@ Uninstall any time with `claude plugin disable agent-carwash`.
 | a **detail bay** | one subagent, working its own task |
 | **jets running** | a real tool call is in flight right now |
 
-Cars move through four stages, and each one means something:
+Every car rides the whole tunnel, the way a real one does — and the tally
+under each arch counts the kind of work that came through it:
 
-| stage | what Claude is doing |
+| stage | counts |
 |---|---|
 | **WATER POUR** | reading and searching |
 | **SOAP & FOAM** | writing and editing |
 | **ROLLERS** | running commands, calling services |
-| **AIR DRY** | the ride out — the call finished |
+| **AIR DRY** | the ride out, once a call has succeeded |
 
-Several calls at once means several cars in the tunnel. A car only leaves
-clean when its call actually completes; **a failed call leaves dirty**, plate
-stamped ✗. Four staff work the shop: **Josh** checks you in, **Nick** runs
-the tunnel, **Jeremy** towels and vacuums, **Levi** waves you off.
+A car's position shows how long its call has been running — it creeps up to a
+line before the dryers and waits there, because nothing can know how much
+longer a call needs. Several calls at once means several cars in the tunnel.
+**A failed call leaves dirty**, plate stamped ✗, skipping the dryers and the
+towel.
+
+The shop is run by **Josh** at check-in, **Nick** through the tunnel,
+**Jeremy** on towel and interior, and **Levi** waving you off.
 
 There's no progress bar anywhere, on purpose — see [the design
 notes](docs/DESIGN.md) for why.
 
 ## Your data stays yours
 
-The page never receives file contents, command lines, tool output, search
-patterns, your prompts, or Claude's replies. It gets tool names and short
-harmless labels — a filename like `index.html`, or `(private file)` for
-anything sensitive; `git status` but never the flags; `pattern (21 chars)`
-but never the pattern.
+Watching costs you nothing in privacy. From everything Claude does, the page
+receives tool names and short harmless labels — a filename like `index.html`,
+or `(private file)` when the path looks sensitive; `git status` but never the
+flags; `pattern (21 chars)` but never the pattern. It never receives file
+contents, command lines, tool output, search patterns, or your prompts and
+replies.
 
-Redaction happens on the way in, before anything is stored. The server is
-loopback-only with a fresh token in every URL, and writes nothing to disk.
+The one thing that does come back in full is the answer to an order **you**
+typed into The Counter — that is the point of the counter, and it goes only
+to the page that placed it.
+
+Redaction happens on the way in, before anything is stored, and **no event
+ever touches disk** — the server keeps them in memory and forgets them when
+it stops. It binds to loopback only, with a fresh token in every URL. (It
+does write two small marker files in `~/.claude/agent-carwash/`, holding its
+pid, port and that token, so the hooks can find it; they're deleted on exit.)
+
 This is enforced by a test that fires real secrets at it and fails if any
 survive — CI runs it on every push.
 
@@ -91,7 +106,9 @@ survive — CI runs it on every push.
 
 **The wash is live but nothing moves.** Hooks only fire in sessions started
 after you installed the plugin — open a new one. (An empty forecourt while
-Claude is idle is just correct.)
+Claude is idle is just correct.) If a new session doesn't help, check you
+have `curl`: the hook emitter uses it, and it stays silent when it's missing
+rather than ever colouring a hook red.
 
 **The counter says "not logged in".** The standalone `claude` CLI keeps its
 own login, separate from the desktop app's. Run `claude` in a terminal and

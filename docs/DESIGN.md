@@ -30,7 +30,13 @@ Consequences, all deliberate:
   its call has *run*, never how close it is to done — it eases to a stop at a
   hold line before the dryers, and only the real completion event carries it
   across.
-- **A failed call leaves dirty.** No towel, no gleam, plate stamped ✗.
+- **A failed call leaves dirty.** No towel, no gleam, plate stamped ✗ — and
+  it never rides AIR DRY, which is reserved for calls that actually
+  succeeded. (That last stage is therefore the one lamp that lights just
+  *after* a call ends rather than during it.)
+- **A turn ending closes its cars.** `turn.ended` is terminal evidence, so any
+  call still open at that instant is finished as far as the stream can ever
+  know, and its car is released clean rather than left stranded.
 - **Thinking is evidenced, not guessed.** It is the exact complement of "a call
   is in flight" inside an open ticket. The thought bubble says *no call in
   flight* — never what Claude is thinking about, because the stream doesn't
@@ -66,12 +72,25 @@ Everything respects `prefers-reduced-motion` and snaps when the tab is hidden.
 | `Bash` | first word, plus the subcommand for a small allowlist (`git status`) | flags, paths, pipes |
 | `Grep` `Glob` | `pattern (21 chars)` | **the pattern** |
 | `WebFetch` | hostname | path, query, tokens |
-| `mcp__x__y` | the `x` segment | tool name, all args |
+| `mcp__x__y` | the server segment (`x`) as the label | the arguments |
+| `Agent` `Task` | the subagent type | the prompt it was given |
+| `WebSearch` | the words `web search` | the query |
 | everything else | `""` | everything |
 
-Prompts become `{chars: N}`. Results become `ok` + `ms`. Redaction happens at
-ingest, before the ring buffer, so raw payloads can never be replayed to a
-later reconnect or appear in `/state`.
+The **tool name itself** is always sent — that is what the activity feed
+lists. What the table governs is the *label* beside it, derived from
+`tool_input`.
+
+Two other channels reach the page and are worth naming: a subagent's own
+one-line description (up to 60 chars, from its meta file, shown on its bay),
+and the working directory's basename at session start. Prompts become
+`{chars: N}`. Results become `ok` + `ms`. Redaction happens at ingest, before
+the ring buffer, so raw payloads can never be replayed to a later reconnect
+or appear in `/state`.
+
+A `Bash` command's leading environment assignments are stepped over before
+the first word is taken — `SECRET=xyz aws s3 ls` reports `aws`, never the
+assignment — and a secret-shaped argv[0] reports nothing at all.
 
 `scripts/assert_redaction.py` proves it: it fires an `id_rsa` read, an
 `AWS_SECRET_ACCESS_KEY` grep, a `?token=SUPERSECRET` URL, a private key in a
@@ -81,16 +100,23 @@ fails if any of it reaches anything the browser can read. It also fails
 leaked" is trivially true when nothing was sent.
 
 Transport: loopback bind only, `Host` header validated, zero CORS headers, a
-fresh 128-bit token in every URL path, nothing written to disk. The emitter
-refuses any marker URL that is not `http://127.0.0.1:` and passes
+fresh 128-bit token in every URL path. No event data is ever written to disk
+and there is no request log — the only files the server touches are two
+markers in `~/.claude/agent-carwash/` (`carwash.live`, `carwash.json`) holding
+its pid, port, url and token so the hooks can find it, removed on exit. The
+emitter refuses any marker URL that is not `http://127.0.0.1:` and passes
 `--noproxy '*'` so a configured proxy never sees a payload.
 
 ### The counter
 
-`/ask` runs your prompt as a real local `claude -p` session. This does not
-weaken the above: the hook *stream* stays redacted; the counter returns only
-the output of the order you personally placed through it, over the same
-tokenised socket, one order at a time, five-minute cap, never logged.
+`/ask` runs your prompt as a real local `claude -p` session, so its reply —
+Claude's actual words — does come back to the page. That is the counter's
+whole purpose, and it is the one exception to everything above: the hook
+*stream* stays redacted, and the counter returns only the output of the order
+you personally placed through it, over the same tokenised socket, one order
+at a time, five-minute cap. The wash never logs it; the spawned session keeps
+its own transcript under `~/.claude/projects`, exactly like any other Claude
+Code session.
 
 ## Files
 

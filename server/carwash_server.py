@@ -44,6 +44,10 @@ SECRET_HINT = re.compile(
     r"(^|/)\.(ssh|aws|gnupg|kube|docker|netrc)(/|$)|(^|/)\.env|id_rsa|id_ed25519|id_dsa"
     r"|credential|secret|passwd|password|\.pem$|\.key$|\.p12$|\.pfx$|\.keychain|token",
     re.I)
+# `FOO=bar cmd ...` — the assignment is not the command, and its VALUE is
+# exactly where people put secrets. Step over it rather than shipping it as
+# the "first word".
+ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 _lock     = threading.Lock()
 _buf      = collections.deque(maxlen=RING)
@@ -76,9 +80,13 @@ def target_for(tool, ti):
         return _clean(os.path.basename(fp))
     if tool in ("Bash", "BashOutput", "KillShell"):
         parts = (ti.get("command") or "").strip().split()
+        while parts and ENV_ASSIGN.match(parts[0]):
+            parts.pop(0)                     # `SECRET=xyz aws …` -> `aws`
         if not parts:
             return ""
         a0 = os.path.basename(parts[0])
+        if SECRET_HINT.search(a0):           # a secret-shaped argv[0] is not a name
+            return ""
         if a0 in SUBCMD_OK and len(parts) > 1 and parts[1].isalpha():
             return _clean(a0 + " " + parts[1])
         return _clean(a0)
@@ -474,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def log_message(self, *a):
-        pass                                        # nothing to disk, ever
+        pass                                        # no request log, ever
 
 
 class CarWash(ThreadingHTTPServer):
