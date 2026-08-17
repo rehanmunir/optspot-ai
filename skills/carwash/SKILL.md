@@ -1,6 +1,6 @@
 ---
 name: carwash
-description: Open OPTSPOT AI (the Agent Car Wash) — a live view of Claude's own agents and tool calls as a car wash, where a task is a car and the agents are washing it. Use when the user says "open the car wash", "open the carwash", "open optspot", "open optspot ai", "wash my tasks", "show me the agents washing", "start the carwash visualizer", or asks to close/stop the car wash.
+description: Open OPTSPOT AI (the Agent Car Wash) — a live view of Claude Code working as a car wash, where every tool call drives in as its own car and the agents are the crew washing them. Use when the user says "open the car wash", "open the carwash", "open optspot", "open optspot ai", "wash my tasks", "show me the agents washing", "start the carwash visualizer", or asks to close/stop the car wash.
 argument-hint: "[close]"
 ---
 

@@ -5,7 +5,7 @@
     {
       "name": "agent-carwash",
       "source": "./",
-      "description": "OPTSPOT AI — watch Claude's own agents and tool calls live as a car wash. A task is a car, agents are the washers, jets run only while a real tool call is in flight. Loopback-only, redacted at ingest."
+      "description": "OPTSPOT AI — watch Claude Code work as a car wash. Every tool call drives in as its own car and leaves clean only when the call really completes; your agents are the crew. Loopback-only, redacted at ingest."
     }
   ]
 }
