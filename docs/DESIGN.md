@@ -23,6 +23,12 @@ A car **is** an in-flight call: it spawns on `tool.started` and is released by
 `tool.finished`. Because the cars are the truth channel, cars, lamps and
 machinery cannot disagree with each other.
 
+Precisely: a lane car is a *main-session* call whose tool maps to a stage.
+Everything else real still shows, elsewhere — a subagent's calls drive its
+bay, and unmapped tools (`TodoWrite`, `Task`, `AskUserQuestion`, …) light an
+add-on chip. The thought bubble accounts for all of them: it will not say
+"no call in flight" while any actor has one.
+
 Consequences, all deliberate:
 
 - **No percentage, no progress bar.** The hook stream cannot know how much of
@@ -47,8 +53,10 @@ Consequences, all deliberate:
   HUD run on their own timer, because `requestAnimationFrame` stops dead in a
   hidden tab — and a frozen page still displaying `● live` is the one thing
   this must never do. Only motion runs on the frame.
-- Only two timers exist: Jeremy's towel dwell and Levi's goodbye, each running
-  strictly *after* that car's own real completion.
+- **Timers never move a car during work.** Three exist, all after the fact:
+  the towel dwell, the goodbye dwell, and the same dwell for a rejected car
+  leaving. (Two more touch no car at all — the state pump, and the bay
+  teardown linger.)
 
 ## Motion
 
@@ -62,7 +70,10 @@ rollers they are genuinely beneath, an antenna that lags and whips. A green
 ring pulses on the frame a call really completes. Vehicle shape and paint —
 including the exotics — are pure variety and never carry meaning.
 
-Everything respects `prefers-reduced-motion` and snaps when the tab is hidden.
+Under `prefers-reduced-motion` (or `?reduced=1`) nothing translates: cars
+park at their own stage instead of riding the belt, and particles, rings and
+secondary motion are off. A hidden tab snaps everything, so no easing debt
+accumulates while you are not looking.
 
 ## What the browser can see
 

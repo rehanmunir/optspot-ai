@@ -218,9 +218,11 @@ const C = Object.freeze({
   CREEP_TAU: 5.5,
   ARRIVE_EPS: 1.2, WHEEL_R: 11,
   BAY_LINGER: 2.2,
-  // Per-car outro dwells (towel, goodbye). The ONLY timers on the page, and
-  // each runs strictly after that car's own real completion event — never
-  // during work, where a timer would be inventing progress.
+  // Per-car outro dwells: towel, goodbye, and the same dwell for a rejected
+  // car on its way out. These run only AFTER a call's own terminal event —
+  // never during work, where a timer would be inventing progress. (Two other
+  // timers exist and neither moves a car: the state pump, and the bay-teardown
+  // linger in closeBay.)
   DRY_T: 1.2, BYE_T: 0.9,
   // grime → shine. Real completions thin it; only turn.ended clears it.
   GRIME_START: .92, GRIME_FLOOR: .24, GRIME_K: 5.0,
@@ -1540,6 +1542,11 @@ const ENGINE = {
       return ZONES.DRY.cx + off(carSlot(c, o => o.state === 'DRYING'));
     if (c.state === 'RINSE') return STATIONS[3].cx;
     if (c.state === 'WASH'){
+      // Reduced motion: no creep at all. The car stands at its own stage, so
+      // the scene reads as a diagram instead of a moving belt.
+      if (REDUCED.matches)
+        return (c.station >= 0 ? STATIONS[c.station].cx : ZONES.CHECKIN.cx)
+             + off(carSlot(c, o => o.state === 'WASH' && o.station === c.station));
       // the chain pulls continuously: in past the gate, through every arch,
       // easing to a stop at the hold line before the dryers. Cars queue on
       // the belt in arrival order, like a real backed-up tunnel.
@@ -1567,7 +1574,7 @@ const ENGINE = {
       // ease-out. Departing cars accelerate away instead (ease-in exits).
       let vWant = Math.max(-C.ROLL_SPEED, Math.min(C.ROLL_SPEED, d * 3.4));
       if (c.state === 'LEAVING') vWant = Math.min(760, Math.abs(c.vx) + 900 * dt);
-      if (snap){ c.x = c.targetX; c.vx = 0; }
+      if (snap || REDUCED.matches){ c.x = c.targetX; c.vx = 0; }   // never slide
       else {
         c.vx += (vWant - c.vx) * Math.min(1, dt * 6);
         c.x += c.vx * dt;
@@ -1761,7 +1768,12 @@ const ENGINE = {
     /* the thought bubble hangs over Josh's podium whenever the ticket is
        open and no call is in flight */
     const th = SCENE.thought, ph = WORLD.phase;
-    const thinking = ph === 'CHECKIN' || ph === 'THINKING';
+    // Only main-session, stage-mapped calls get a car — but a subagent call or
+    // an add-on call (TodoWrite, Task, AskUserQuestion…) is still real work in
+    // flight. Claiming "no call in flight" during one would be a lie, so the
+    // bubble waits for the whole shop to be quiet.
+    const anyLive = Object.values(FEED.actors).some(a => a.liveN > 0);
+    const thinking = (ph === 'CHECKIN' || ph === 'THINKING') && !anyLive;
     FADE.to(th.g, thinking ? 1 : 0, thinking ? 7 : 10);
     if (thinking){
       setA(th.g, 'transform', 'translate(' + ZONES.CHECKIN.cx.toFixed(1) + ',' +

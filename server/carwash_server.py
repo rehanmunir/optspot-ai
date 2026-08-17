@@ -346,10 +346,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    # self.path carries the query string; every route below matches on the
+    # path alone, or `?debug=1` and friends would 404.
+    def _path(self):
+        return urlparse(self.path).path
+
     def do_POST(self):
         if not self._host_ok():
             return self._deny()
-        m = re.match(r"^/ingest/([0-9a-f]{32})$", self.path)
+        m = re.match(r"^/ingest/([0-9a-f]{32})$", self._path())
         if m and self._tok(m.group(1)):
             n = int(self.headers.get("Content-Length") or 0)
             if n > MAX_BODY:
@@ -369,10 +374,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 _counters["bad"] += 1                  # a bad event must not kill the server
             return
-        m = re.match(r"^/c/([0-9a-f]{32})/ask$", self.path)
+        m = re.match(r"^/c/([0-9a-f]{32})/ask$", self._path())
         if m and self._tok(m.group(1)):
             return self._ask()
-        m = re.match(r"^/c/([0-9a-f]{32})/close$", self.path)
+        m = re.match(r"^/c/([0-9a-f]{32})/close$", self._path())
         if m and self._tok(m.group(1)):
             self._send(b"closing")
             threading.Thread(target=self._bye, daemon=True).start()
@@ -409,7 +414,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self._host_ok():
             return self._deny()
-        m = re.match(r"^/c/([0-9a-f]{32})(/.*)?$", self.path)
+        m = re.match(r"^/c/([0-9a-f]{32})(/.*)?$", self._path())
         if not m or not self._tok(m.group(1)):
             return self._deny()
         rest = m.group(2) or "/"
@@ -494,10 +499,26 @@ SRV = None
 
 
 def write_markers(url_ingest, url_page):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(os.path.join(DATA_DIR, "carwash.live"), "w") as f:
+    # These two files carry the token that guards the stream, so they are the
+    # user's alone — 0700 on the directory, 0600 on the files. Default umask
+    # would leave them world-readable, and any local process could then read
+    # the whole feed.
+    os.makedirs(DATA_DIR, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(DATA_DIR, 0o700)
+    except OSError:
+        pass
+    live = os.path.join(DATA_DIR, "carwash.live")
+    meta = os.path.join(DATA_DIR, "carwash.json")
+    for p in (live, meta):                          # own them before writing
+        try:
+            os.close(os.open(p, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600))
+            os.chmod(p, 0o600)
+        except OSError:
+            pass
+    with open(live, "w") as f:
         f.write(url_ingest + "\n")                  # one line: the hook's read is a builtin
-    with open(os.path.join(DATA_DIR, "carwash.json"), "w") as f:
+    with open(meta, "w") as f:
         json.dump({"pid": os.getpid(), "port": PORT, "token": TOKEN,
                    "url": url_page, "viewer": ARGS.viewer,
                    "claude_pid": os.environ.get("CLAUDE_PID"),

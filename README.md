@@ -2,9 +2,9 @@
 
 *Work hard, play hard, no drama.*
 
-Watch Claude Code work, as a car wash. Every tool call drives in as its own
-car, gets soaked and foamed and scrubbed while the call runs, and leaves
-clean the moment it finishes. Your agents are the crew.
+Watch Claude Code work, as a car wash. Every time Claude reads, writes or
+runs something, a car drives in — soaked and foamed and scrubbed while the
+call runs, leaving clean the moment it finishes. Your agents are the crew.
 
 Nothing on screen is invented — if Claude is idle, the forecourt is empty.
 
@@ -33,7 +33,10 @@ opened after the install.
 Claude starts a local server and opens the page. Keep it in a side window.
 
 **2. Give Claude work.** Anything, in that session or any other on this
-machine. Cars start rolling in — one per tool call.
+machine. Cars start rolling in. (Work that isn't a read, write or command —
+spawning a subagent, ticking a to-do, asking you a question — lights an
+add-on chip on the ticket instead, and subagents wash their tasks in the
+bays.)
 
 **3. Or order from the page.** Type a job into **The Counter** box and hit
 *ask*. Claude runs it right there; you watch the cars while it works, and the
@@ -52,7 +55,7 @@ To remove it for good: `claude plugin uninstall agent-carwash@optspot`.
 
 | on screen | what it is |
 |---|---|
-| a **car** | one tool call |
+| a **car** | one of Claude's reads, writes or commands |
 | the **ticket** | one turn — your prompt to Claude's reply |
 | a **washer** | one agent |
 | a **detail bay** | one subagent, working its own task |
@@ -123,7 +126,8 @@ with canned traffic — it says so on screen.
 - [Design notes](docs/DESIGN.md) — how the wash stays honest, and why there's
   no progress bar
 - URL options: `?seed=42` fixes the vehicles, `?debug=1` shows fps and event
-  counts, `?reduced=1` turns off motion
+  counts, `?reduced=1` parks the cars and drops the particles (it's also
+  automatic if your system asks for reduced motion)
 
 The OptSpot wordmark belongs to [optspot.com](https://optspot.com) and ships
 inline — the page makes zero external requests.
