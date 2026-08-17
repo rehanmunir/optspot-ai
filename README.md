@@ -1,6 +1,6 @@
 # OPTSPOT AI
 
-*Play hard, work hard, no drama.*
+*Work hard, play hard, no drama.*
 
 A car wash for your Claude Code sessions. Every car is a real tool call,
 every washer is a real agent, and the jets run **if and only if** a call is
