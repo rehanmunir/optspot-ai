@@ -38,6 +38,10 @@ spawning a subagent, ticking a to-do, asking you a question — lights an
 add-on chip on the ticket instead, and subagents wash their tasks in the
 bays.)
 
+One wash shows one session. If you have several Claude Code windows open, a
+picker appears in the header — the wash follows whichever session is newest
+until you choose one, and then it stays where you put it.
+
 **3. Or order from the page.** Type a job into **The Counter** box and hit
 *ask*. Claude runs it right there; you watch the cars while it works, and the
 answer appears underneath.

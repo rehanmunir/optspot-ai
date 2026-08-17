@@ -50,6 +50,10 @@ body{
 .stat{display:flex;align-items:baseline;gap:6px;font:11px/1 var(--mono);color:var(--dim)}
 .stat b{font-size:16px;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
 .spacer{flex:1}
+#sess{background:#0d1626;color:var(--dim);border:1px solid var(--line);border-radius:999px;
+       padding:4px 9px;font:11px/1 var(--mono);max-width:230px;cursor:pointer}
+#sess:hover{color:var(--ink)}
+#sess.pinned{color:var(--cyan);border-color:#1f4a63}
 .conn{display:inline-flex;align-items:center;gap:7px;font:11px/1 var(--mono);
       padding:5px 10px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
 .conn .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
@@ -143,6 +147,7 @@ body{
     <span class="stat"><b id="s-queue">0</b> queued</span>
     <span class="stat"><b id="s-done">0</b> finished</span>
     <span class="spacer"></span>
+    <select id="sess" title="which Claude session this wash is following"></select>
     <span class="conn" id="conn"><span class="dot"></span><span id="conn-t">starting…</span></span>
   </header>
 
@@ -432,6 +437,122 @@ function regrime(car){
    The ticket is the turn: Josh opens it on your prompt, the cars stream
    through it, Levi closes it on turn.ended. Nothing here needs a high-water
    mark or a touch-up crew any more — every car's whole life is evidenced. */
+/* One wash shows ONE session. Every local Claude Code session feeds the same
+   server — the hooks are user-wide — so without this they merged into a
+   single imaginary Claude: shared crew, shared ticket, and one session's
+   `turn.ended` finishing another session's still-running car.
+
+   So each session keeps its own shadow here, the scene renders whichever is
+   focused, and the wash follows the newest session automatically until you
+   pick one from the header (after which it stays where you put it). */
+const SESSIONS = {};
+let FOCUS = null, FOCUS_PINNED = false;
+
+function sessOf(sid){
+  return SESSIONS[sid] || (SESSIONS[sid] = {
+    sid, label: '', lastAt: Date.now(), washed: 0,
+    live: {},              // tool_use_id -> {tool, si, startedAt}
+    subs: {},              // agent_id    -> {type, label}
+    turn: { open:false, startedAt:0, spawned:0, washed:0, failed:0, queue:0 }
+  });
+}
+
+/* Fold an event into a session we are NOT showing — enough to keep its
+   counters honest and to rebuild its forecourt the moment you switch. */
+function shadowApply(ss, e){
+  const d = e.d || {};
+  switch (e.t){
+    case 'session.started': ss.label = d.cwd_name || ss.label; break;
+    case 'prompt.submitted':
+      if (ss.turn.open) ss.turn.queue++;
+      else { ss.turn = { open:true, startedAt:Date.now(), spawned:0, washed:0,
+                         failed:0, queue:ss.turn.queue }; }
+      break;
+    case 'turn.ended':
+      ss.turn.open = false; ss.live = {};
+      if (ss.turn.queue > 0){ ss.turn.queue--; ss.turn.open = true; }
+      break;
+    case 'actor.spawned':
+      if (d.kind === 'subagent') ss.subs[e.a] = { type:d.agent_type || '', label:d.label || '' };
+      break;
+    case 'actor.updated':
+      if (ss.subs[e.a]) ss.subs[e.a].label = d.label || ss.subs[e.a].label;
+      break;
+    case 'actor.stopped': delete ss.subs[e.a]; break;
+    case 'tool.started': {
+      if (d.spawns || e.a !== 'main') break;
+      const si = stationFor(d.tool);
+      if (si < 0) break;
+      if (!ss.turn.open){ ss.turn.open = true; ss.turn.startedAt = Date.now(); }
+      ss.live[d.id] = { tool:d.tool, si, startedAt:Date.now() };
+      ss.turn.spawned++;
+      break;
+    }
+    case 'tool.finished': case 'tool.failed': {
+      if (e.a !== 'main' || !ss.live[d.id]) break;
+      delete ss.live[d.id];
+      if (e.t === 'tool.finished'){ ss.turn.washed++; ss.washed++; }
+      else ss.turn.failed++;
+      break;
+    }
+  }
+}
+
+/* Pack the focused session back into its shadow before we look away. */
+function stow(){
+  if (FOCUS == null) return;
+  const ss = sessOf(FOCUS);
+  ss.live = {};
+  for (const tid in CARS){
+    const c = CARS[tid];
+    ss.live[tid] = { tool:c.tool, si:c.station, startedAt:c.startedAt };
+  }
+  ss.subs = {};
+  for (const k in FEED.actors){
+    const a = FEED.actors[k];
+    if (a.kind === 'subagent') ss.subs[k] = { type:a.type, label:a.label };
+  }
+  ss.turn = { open:TURN.open, startedAt:TURN.startedAt, spawned:TURN.spawned,
+              washed:TURN.washed, failed:TURN.failed, queue:TURN.queue };
+  ss.washed = SESSION.washed;
+}
+
+/* Clear the forecourt and rebuild it as the incoming session left it. */
+function setFocus(sid){
+  if (sid === FOCUS) return;
+  stow();
+  FOCUS = sid;
+  const ss = sessOf(sid);
+
+  for (const c of WORLD.cars.slice()){          // nobody else's cars linger
+    if (c.bay) continue;
+    SCENE.unmountLaneCar(c);
+    WORLD.cars.splice(WORLD.cars.indexOf(c), 1);
+  }
+  for (const k in CARS) delete CARS[k];
+  for (const k in FEED.actors){
+    const a = FEED.actors[k];
+    if (a.bay != null) FEED.closeBay(a, true);   // quiet: not a completion
+  }
+  FEED.actors = {}; FEED.main = null;
+
+  Object.assign(TURN, ss.turn, { lastSummary:null });
+  SESSION.washed = ss.washed;
+
+  // put its in-flight calls and subagents back on stage
+  FEED.claim('main', 'main', '', ss.label || sid.slice(0, 6));
+  for (const tid in ss.live){
+    const L = ss.live[tid];
+    const car = spawnCallCar(tid, L.tool, L.si);
+    car.startedAt = L.startedAt;                 // keep its true age
+    FEED.actors['main'].tools[tid] = L.tool;
+    FEED.actors['main'].liveN++;
+  }
+  for (const aid in ss.subs) FEED.claim(aid, 'subagent', ss.subs[aid].type, ss.subs[aid].label);
+  HUD.dirty = true; HUD.sessDirty = true;
+}
+/* The focused session's live state. The shadows above hold every other
+   session; these three are what the scene is drawn from. */
 const TURN    = { open:false, startedAt:0, spawned:0, washed:0, failed:0,
                   queue:0, lastSummary:null };
 const SESSION = { washed:0 };
@@ -464,7 +585,7 @@ function spawnCallCar(tid, tool, si){
   car.callId = tid;
   CARS[tid] = car; WORLD.cars.push(car); TURN.spawned++;
   SCENE.mountLaneCar(car);
-  HUD.dirty = true;
+  HUD.dirty = true; HUD.sessDirty = true;
   return car;
 }
 
@@ -1286,6 +1407,21 @@ const FEED = {
   },
 
   apply(e){
+    const sid = e.s || '-';
+    const ss  = sessOf(sid);
+    ss.lastAt = Date.now();
+    if (e.t === 'session.started') ss.label = (e.d && e.d.cwd_name) || ss.label;
+
+    if (FOCUS == null) setFocus(sid);
+    else if (sid !== FOCUS && !FOCUS_PINNED && !Object.keys(CARS).length)
+      setFocus(sid);                       // follow the newest, never mid-wash
+
+    if (sid !== FOCUS){                    // someone else's Claude: count, don't show
+      shadowApply(ss, e);
+      HUD.dirty = true; HUD.sessDirty = true;
+      return;
+    }
+
     const id = e.a;
     switch (e.t){
       case 'wash.snapshot': {
@@ -1297,6 +1433,8 @@ const FEED = {
             WORLD.cars.splice(WORLD.cars.indexOf(c), 1); } }
           for (const k in CARS) delete CARS[k];
           TURN.open = false; TURN.queue = 0;
+          for (const k in SESSIONS) delete SESSIONS[k];
+          FOCUS = null; FOCUS_PINNED = false; HUD.sessDirty = true;
         }
         for (const s of e.d.actors || []){
           const rec = this.claim(s.id, s.kind, s.agent_type, s.label);
@@ -1883,7 +2021,12 @@ const HUD = {
     const g = id => document.getElementById(id);
     this.els = { wash:g('s-wash'), crew:g('s-crew'), queue:g('s-queue'), done:g('s-done'),
                  conn:g('conn'), connT:g('conn-t'), rows:g('rows'), sideN:g('side-n'),
-                 seed:g('f-seed') };
+                 seed:g('f-seed'), sess:g('sess') };
+    this.els.sess.addEventListener('change', ev => {
+      FOCUS_PINNED = true;                 // you chose; the wash stops wandering
+      setFocus(ev.target.value);
+      this.els.sess.classList.add('pinned');
+    });
     this.els.seed.textContent = 'seed ' + SEED + (DEBUG ? ' · debug' : '');
     // the ticket and the add-on chips live in the side panel now — same code
     // writes them (textContent), the canvas stays all tunnel
@@ -1923,6 +2066,24 @@ const HUD = {
       e.seed.textContent = 'seed ' + SEED + ' · fps ' + ENGINE.fps +
                            ' · ev ' + FEED.lastSeq +
                            (FEED.dropped ? ' · dropped ' + FEED.dropped : '');
+    // the session picker — only rebuilt when the roster actually changes
+    const ids = Object.keys(SESSIONS).sort((a, b) => SESSIONS[b].lastAt - SESSIONS[a].lastAt);
+    const sig = ids.map(i => i + (SESSIONS[i].label || '')).join('|') + '#' + FOCUS;
+    if (this.sessDirty || sig !== this._sessSig){
+      this._sessSig = sig; this.sessDirty = false;
+      e.sess.style.display = ids.length > 1 ? '' : 'none';
+      e.sess.innerHTML = '';
+      for (const i of ids){
+        const o = document.createElement('option');
+        o.value = i;
+        const busy = i === FOCUS ? Object.keys(CARS).length : Object.keys(SESSIONS[i].live).length;
+        o.textContent = (SESSIONS[i].label || 'session ' + i.slice(0, 6))
+                      + (busy ? '  ● ' + busy : '');
+        if (i === FOCUS) o.selected = true;
+        e.sess.appendChild(o);
+      }
+    }
+
     const cls = FEED.demo ? 'demo' : FEED.connected ? 'ok' : 'off';
     setCls(e.conn, 'conn ' + cls);
     e.connT.textContent = FEED.demo ? 'demo — not connected to Claude'
@@ -2084,6 +2245,15 @@ window.__CW = {
   step(n, ms){ for (let i = 0; i < n; i++) ENGINE.frame(ENGINE.last + (ms || 16.6667)); },
   info(){ return { fps: ENGINE.fps, nodes: document.getElementsByTagName('*').length,
                    seed: SEED, events: FEED.lastSeq, dropped: FEED.dropped }; },
+  sessions(){ return { focus: FOCUS, pinned: FOCUS_PINNED,
+                       all: Object.keys(SESSIONS).map(k => ({
+                         sid: k, label: SESSIONS[k].label,
+                         live: Object.keys(SESSIONS[k].live).length,
+                         washed: SESSIONS[k].washed })) }; },
+  setFocus(sid){ FOCUS_PINNED = true; setFocus(sid); },
+  unpin(){ FOCUS_PINNED = false; HUD.sessDirty = true;
+           const el = HUD.els.sess; if (el) el.classList.remove('pinned'); },
+  SESSIONS,
   state(){ return { phase: WORLD.phase,
                     turn: { open: TURN.open, spawned: TURN.spawned, washed: TURN.washed,
                             failed: TURN.failed, queue: TURN.queue },

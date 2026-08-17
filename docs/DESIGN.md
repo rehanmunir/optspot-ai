@@ -58,6 +58,21 @@ Consequences, all deliberate:
   leaving. (Two more touch no car at all — the state pump, and the bay
   teardown linger.)
 
+## One wash, one session
+
+The hooks are user-wide, so every local Claude Code session feeds the same
+server. Left alone they merged into a single imaginary Claude — shared crew,
+shared ticket, and (measured, not theorised) one session's `turn.ended`
+finishing another session's still-running car.
+
+Each session now keeps its own shadow: its live calls, its subagents, its
+ticket counters. The scene renders exactly one of them. Switching focus packs
+the outgoing session back into its shadow and rebuilds the forecourt from the
+incoming one, preserving each car's true age so the belt positions stay
+honest. The wash follows the newest session automatically — but never
+mid-wash, only when the current one has an empty tunnel — and stops wandering
+the moment you pick one from the header.
+
 ## Motion
 
 State snaps on the frame evidence arrives; only the pixels ease. One fade
