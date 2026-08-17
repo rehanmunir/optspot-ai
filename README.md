@@ -42,9 +42,11 @@ One wash shows one session. If you have several Claude Code windows open, a
 picker appears in the header — the wash follows whichever session is newest
 until you choose one, and then it stays where you put it.
 
-**3. Or order from the page.** Type a job into **The Counter** box and hit
-*ask*. Claude runs it right there; you watch the cars while it works, and the
-answer appears underneath.
+**3. Or order from the page.** Type a job into **The Counter** and press
+Enter (Shift+Enter for a new line). Claude runs it right there — you watch the
+cars while it works, and the answer lands in the panel underneath, kept with
+what you asked so you can read them together. Pick a **model** and an
+**effort level** beside the ask button if you want; both are remembered.
 
 **4. Close it** when you're done:
 

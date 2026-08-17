@@ -290,7 +290,12 @@ def translate(p):
 _ask_busy = threading.Lock()
 
 
-def run_claude(prompt):
+# Exactly what `claude --help` accepts. Anything else never reaches argv.
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+MODELS  = ("fable", "opus", "sonnet", "haiku")
+
+
+def run_claude(prompt, model="", effort=""):
     exe = shutil.which("claude")
     if not exe:
         return (False, "the `claude` CLI is not on PATH for the wash server")
@@ -299,8 +304,13 @@ def run_claude(prompt):
     # child CLI think it is nested — or, worse, differently authenticated
     # ("Not logged in" with a perfectly logged-in user).
     env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+    argv = [exe, "-p", prompt]
+    if model in MODELS:
+        argv += ["--model", model]
+    if effort in EFFORTS:
+        argv += ["--effort", effort]
     try:
-        r = subprocess.run([exe, "-p", prompt],
+        r = subprocess.run(argv,
                            capture_output=True, text=True, timeout=300,
                            cwd=os.path.expanduser("~"), env=env)
     except subprocess.TimeoutExpired:
@@ -391,8 +401,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             body = json.loads(self.rfile.read(n) if n else b"{}")
             prompt = str(body.get("prompt") or "").strip()
+            model  = str(body.get("model") or "")
+            effort = str(body.get("effort") or "")
         except Exception:
-            prompt = ""
+            prompt = model = effort = ""
         if not prompt or len(prompt) > 4000:
             return self._send(b'{"ok":false,"text":"empty or oversized prompt"}',
                               "application/json", 400)
@@ -400,12 +412,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(b'{"ok":false,"text":"the counter is busy - one order at a time"}',
                               "application/json", 409)
         try:
-            ok, text = run_claude(prompt)
+            t0 = time.time()
+            ok, text = run_claude(prompt, model, effort)
+            ms = int((time.time() - t0) * 1000)
         finally:
             _ask_busy.release()
         # the reply goes back over the same tokenised loopback socket it was
         # ordered on, and is never buffered, logged, or written anywhere
-        self._send(json.dumps({"ok": ok, "text": text}).encode(), "application/json")
+        self._send(json.dumps({"ok": ok, "text": text, "ms": ms}).encode(),
+                   "application/json")
 
     def _bye(self):
         time.sleep(0.2)

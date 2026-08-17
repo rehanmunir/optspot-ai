@@ -76,11 +76,17 @@ body{
 #counter{padding:12px 14px;border-bottom:1px solid var(--line)}
 #counter h4{margin:0 0 8px;padding:0;font:11px/1 var(--mono);letter-spacing:.14em;
             text-transform:uppercase;color:var(--dim);border:0}
-#ask-form{display:flex;gap:6px}
-#ask-in{flex:1;min-width:0;background:#0d1626;border:1px solid var(--line);border-radius:8px;
-        padding:7px 10px;color:var(--ink);font:12px/1.4 var(--sans)}
+#ask-form{display:flex;flex-direction:column;gap:6px}
+#ask-in{width:100%;box-sizing:border-box;background:#0d1626;border:1px solid var(--line);
+        border-radius:8px;padding:8px 10px;color:var(--ink);font:12px/1.5 var(--sans);
+        resize:vertical;min-height:38px;max-height:180px}
 #ask-in:focus{outline:none;border-color:#1f4a63}
 #ask-in::placeholder{color:var(--faint)}
+#ask-row{display:flex;align-items:center;gap:6px}
+#ask-row select{background:#0d1626;color:var(--dim);border:1px solid var(--line);
+                border-radius:7px;padding:4px 7px;font:10px/1 var(--mono);cursor:pointer}
+#ask-row select:hover{color:var(--ink)}
+#ask-row .spacer{flex:1}
 #ask-go{background:#123a4d;color:var(--cyan);border:1px solid #1f4a63;border-radius:8px;
         padding:7px 13px;font:11px/1 var(--mono);letter-spacing:.08em;cursor:pointer;
         transition:background .2s,transform .12s}
@@ -88,10 +94,20 @@ body{
 #ask-go:active:not(:disabled){transform:scale(.96)}
 #ask-in{transition:border-color .2s}
 #ask-go:disabled,#ask-in:disabled{opacity:.45;cursor:default}
-#answer{margin-top:9px;font:12px/1.55 var(--sans);color:var(--ink);white-space:pre-wrap;
-        overflow-wrap:break-word;max-height:230px;overflow-y:auto;background:#0d1626;
-        border:1px solid var(--line);border-radius:8px;padding:9px 11px}
-#answer.waiting{color:var(--dim);font:11px/1.5 var(--mono)}
+#convo{margin-top:9px;display:flex;flex-direction:column;gap:7px;max-height:300px;
+       overflow-y:auto;scrollbar-width:thin}
+#convo:empty{display:none}
+.bub{border-radius:9px;padding:8px 10px;font:12px/1.55 var(--sans);
+     overflow-wrap:break-word;white-space:pre-wrap}
+.bub.you{background:#12203a;color:var(--dim);border:1px solid var(--line);
+         font-size:11.5px;align-self:flex-end;max-width:92%}
+.bub.claude{background:#0d1626;border:1px solid var(--line);color:var(--ink)}
+.bub.err{border-color:#4a1f26;color:#ffb3b3}
+.bub.wait{color:var(--dim);font:11px/1.5 var(--mono)}
+.bub .meta{display:block;margin-top:6px;font:10px/1 var(--mono);color:var(--faint)}
+.bub .meta button{background:none;border:0;color:var(--faint);cursor:pointer;
+                  font:10px/1 var(--mono);padding:0;text-decoration:underline}
+.bub .meta button:hover{color:var(--cyan)}
 #ticket{padding:12px 14px 10px;border-bottom:1px solid var(--line)}
 #ticket h4{margin:0 0 8px;padding:0;font:11px/1 var(--mono);letter-spacing:.14em;
            text-transform:uppercase;color:var(--dim);border:0}
@@ -157,11 +173,29 @@ body{
     <div id="counter">
       <h4>The Counter</h4>
       <form id="ask-form">
-        <input id="ask-in" type="text" maxlength="2000" autocomplete="off"
-               placeholder="give Claude a job — watch it get washed">
-        <button id="ask-go" type="submit">ask</button>
+        <textarea id="ask-in" maxlength="4000" rows="2" autocomplete="off"
+          placeholder="give Claude a job — watch it get washed&#10;⏎ to send · ⇧⏎ for a new line"></textarea>
+        <div id="ask-row">
+          <select id="ask-model" title="model">
+            <option value="">default model</option>
+            <option value="fable">fable</option>
+            <option value="opus">opus</option>
+            <option value="sonnet">sonnet</option>
+            <option value="haiku">haiku</option>
+          </select>
+          <select id="ask-effort" title="effort level">
+            <option value="">default effort</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="xhigh">xhigh</option>
+            <option value="max">max</option>
+          </select>
+          <span class="spacer"></span>
+          <button id="ask-go" type="submit">ask</button>
+        </div>
       </form>
-      <div id="answer" hidden></div>
+      <div id="convo"></div>
     </div>
     <div id="ticket">
       <h4>Ticket</h4>
@@ -2062,6 +2096,7 @@ const HUD = {
         ? TURN.queue + ' ticket' + (TURN.queue === 1 ? '' : 's') + ' waiting'
         : '';
 
+    COUNTER.tick();
     if (DEBUG)
       e.seed.textContent = 'seed ' + SEED + ' · fps ' + ENGINE.fps +
                            ' · ev ' + FEED.lastSeq +
@@ -2274,41 +2309,100 @@ window.__CW = {
    loopback socket. The redacted stream is untouched by this: the counter
    only ever returns the output of the order placed through it. */
 const COUNTER = {
-  busy: false,
+  busy: false, waitEl: null, startedAt: 0,
   init(){
     const form = document.getElementById('ask-form');
     if (!form) return;
-    this.inp = document.getElementById('ask-in');
-    this.btn = document.getElementById('ask-go');
-    this.out = document.getElementById('answer');
+    this.inp    = document.getElementById('ask-in');
+    this.btn    = document.getElementById('ask-go');
+    this.convo  = document.getElementById('convo');
+    this.model  = document.getElementById('ask-model');
+    this.effort = document.getElementById('ask-effort');
+    // remember the pickers between visits — they are a preference, not state
+    try {
+      this.model.value  = localStorage.getItem('cw.model')  || '';
+      this.effort.value = localStorage.getItem('cw.effort') || '';
+    } catch (e){}
+    for (const sel of [this.model, this.effort])
+      sel.addEventListener('change', () => {
+        try {
+          localStorage.setItem('cw.model',  this.model.value);
+          localStorage.setItem('cw.effort', this.effort.value);
+        } catch (e){}
+      });
     form.addEventListener('submit', e => { e.preventDefault(); this.ask(); });
+    // ⏎ sends, ⇧⏎ writes a new line — the shape everyone already knows
+    this.inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); this.ask(); }
+    });
+    this.inp.addEventListener('input', () => {          // grow with the prompt
+      this.inp.style.height = 'auto';
+      this.inp.style.height = Math.min(180, this.inp.scrollHeight) + 'px';
+    });
+  },
+  bubble(cls, text){
+    const d = document.createElement('div');
+    d.className = 'bub ' + cls;
+    d.textContent = text;
+    this.convo.appendChild(d);
+    this.convo.scrollTop = this.convo.scrollHeight;
+    return d;
   },
   async ask(){
     const q = (this.inp.value || '').trim();
     if (!q || this.busy) return;
     if (!window.__CW_LIVE || !window.__CW_LIVE.ask){
-      this.show('demo mode — the counter needs the live server', true); return;
+      this.bubble('claude err', 'demo mode — the counter needs the live server');
+      return;
     }
-    this.busy = true; this.btn.disabled = true; this.inp.disabled = true;
-    this.show('order taken — watch the wash while Claude works on it…', true);
+    const model = this.model.value, effort = this.effort.value;
+    this.busy = true; this.btn.disabled = true;
+    this.inp.value = ''; this.inp.style.height = 'auto';
+
+    this.bubble('you', q);
+    const tag = [model || 'default model', effort ? effort + ' effort' : null]
+      .filter(Boolean).join(' · ');
+    this.waitEl = this.bubble('claude wait', 'washing… (' + tag + ')');
+    this.startedAt = Date.now();
+
     try {
       const r = await fetch(window.__CW_LIVE.ask, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: q })
+        body: JSON.stringify({ prompt: q, model, effort })
       });
       const d = await r.json();
-      this.show(d.text || '(empty reply)', !d.ok);
-      if (d.ok) this.inp.value = '';
+      this.waitEl.remove(); this.waitEl = null;
+      const b = this.bubble('claude' + (d.ok ? '' : ' err'), d.text || '(empty reply)');
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = (d.ok ? '' : 'failed · ')
+        + (d.ms ? (d.ms >= 1000 ? (d.ms / 1000).toFixed(1) + 's' : d.ms + 'ms') : '')
+        + (tag ? '  ·  ' + tag : '') + '  ·  ';
+      const copy = document.createElement('button');
+      copy.textContent = 'copy';
+      copy.onclick = () => {
+        navigator.clipboard.writeText(d.text || '').then(
+          () => { copy.textContent = 'copied'; setTimeout(() => copy.textContent = 'copy', 1400); },
+          () => { copy.textContent = 'copy failed'; });
+      };
+      meta.appendChild(copy);
+      b.appendChild(meta);
+      this.convo.scrollTop = this.convo.scrollHeight;
     } catch (e){
-      this.show('the counter could not reach the wash: ' + e.message, true);
+      if (this.waitEl){ this.waitEl.remove(); this.waitEl = null; }
+      this.bubble('claude err', 'the counter could not reach the wash: ' + e.message);
     }
-    this.busy = false; this.btn.disabled = false; this.inp.disabled = false;
+    this.busy = false; this.btn.disabled = false;
+    this.inp.focus();
     HUD.dirty = true;
   },
-  show(t, waiting){
-    this.out.hidden = false;
-    this.out.textContent = t;
-    this.out.classList.toggle('waiting', !!waiting);
+  // the wait bubble counts up, so a long job never looks like a hung one
+  tick(){
+    if (!this.waitEl) return;
+    const s = Math.floor((Date.now() - this.startedAt) / 1000);
+    const base = this.waitEl.textContent.split('  ')[0];
+    this.waitEl.textContent = base + '  ' + Math.floor(s / 60) + ':' +
+                              String(s % 60).padStart(2, '0');
   }
 };
 

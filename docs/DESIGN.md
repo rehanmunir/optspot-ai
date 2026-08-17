@@ -135,7 +135,12 @@ emitter refuses any marker URL that is not `http://127.0.0.1:` and passes
 
 ### The counter
 
-`/ask` runs your prompt as a real local `claude -p` session, so its reply —
+`/ask` takes a prompt plus an optional model and effort level, each checked
+against the CLI's own accepted values (`fable|opus|sonnet|haiku`,
+`low|medium|high|xhigh|max`) before it can reach argv — a value that is not on
+those lists is dropped, never passed through.
+
+It runs your prompt as a real local `claude -p` session, so its reply —
 Claude's actual words — does come back to the page. That is the counter's
 whole purpose, and it is the one exception to everything above: the hook
 *stream* stays redacted, and the counter returns only the output of the order
